@@ -1,0 +1,53 @@
+name: Test
+
+# The whole organization's update logic runs on this library, so a regression here breaks every
+# cache at once. That is the trade for de-duplicating it, and these tests are the other half of it.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is what the CI runner's system `python3` provides, and `update_pipeline.sh` parses
+        # `cache.toml` with it before any environment exists; 3.13 is what the container runs.
+        python-version: [ "3.11", "3.13" ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: uv pip install --system ".[test]"
+
+      - name: Run the tests
+        run: pytest -q
+
+      - name: Check the pipeline script
+        run: |
+          bash -n bin/update_pipeline.sh
+          sudo apt-get update || true
+          sudo apt-get install -y shellcheck
+          shellcheck bin/update_pipeline.sh
+
+      - name: Check the core imports without third-party packages
+        # `update_pipeline.sh` reads `cache.toml` with the runner's bare `python3`. If anything in
+        # the core grows an import of boto3 or h5py, the orchestration breaks before it starts.
+        run: python tests/check_core_imports.py
