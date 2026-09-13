@@ -87,18 +87,30 @@ jobs:
           file: containers/Dockerfile
           target: ${{ matrix.target }}
           push: ${{ github.event_name != 'pull_request' }}
+          # A pull request does not push, so load the result into the local daemon instead; the
+          # verification below needs the image either way.
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Check the vendored pipeline survived the build
-        # The image is how the orchestration is distributed, so a build that silently loses the
-        # script would break every cache's next update rather than failing here.
-        if: ${{ github.event_name != 'pull_request' }}
+        # The image is how the orchestration is distributed, so a build that silently lost the
+        # script or the sources would break every cache's next update rather than failing here.
+        # This runs on pull requests too: the vendoring is the mechanism the whole design rests on,
+        # and it should not first be exercised after merge.
         run: |
           IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
           docker run --rm "${IMAGE}" bash -n /opt/dandi-cache-utils/bin/update_pipeline.sh
           docker run --rm "${IMAGE}" python -c "import dandi_cache_utils; print(dandi_cache_utils.__version__)"
+          docker run --rm "${IMAGE}" test -f /opt/dandi-cache-utils/bin/runner-requirements.txt
+          # Exercise the exact path the pipeline takes on the runner: the *system* interpreter
+          # (outside the image's virtual environment, so nothing is installed) importing the
+          # vendored sources to parse a real cache.toml. This is what proves the core stayed
+          # standard-library only in a shipped image, not just in the test matrix.
+          docker run --rm -v "$PWD":/repo:ro -e PYTHONPATH=/opt/dandi-cache-utils/src "${IMAGE}" \
+            /usr/bin/python3 -m dandi_cache_utils config shell \
+            /repo/examples/content-id-to-valid-nwb-file/cache.toml
 
   NotifyOnFailure:
     runs-on: ubuntu-latest

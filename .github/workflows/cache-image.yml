@@ -80,9 +80,25 @@ jobs:
           file: ${{ inputs.dockerfile }}
           target: ${{ inputs.target }}
           push: ${{ github.event_name != 'pull_request' }}
+          # A pull request does not push, so load the result locally for the check below.
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Check the image carries the shared pipeline
+        # A cache image must be built FROM the dandi-cache-utils base, because CI extracts the
+        # orchestration from it at run time. Catching a Dockerfile that is not leaves the failure
+        # here rather than in the cache's next scheduled update.
+        run: |
+          IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
+          if ! docker run --rm "${IMAGE}" test -f /opt/dandi-cache-utils/bin/update_pipeline.sh; then
+            echo "ERROR: ${IMAGE} does not carry /opt/dandi-cache-utils." >&2
+            echo "Build it FROM ghcr.io/dandi-cache/dandi-cache-utils:latest (or :nwb)." >&2
+            exit 1
+          fi
+          docker run --rm -v "$PWD":/repo:ro "${IMAGE}" \
+            python -c "import dandi_cache_utils; dandi_cache_utils.read_config('/repo/cache.toml')"
 
   NotifyOnFailure:
     runs-on: ubuntu-latest
