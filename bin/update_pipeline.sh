@@ -130,7 +130,8 @@ push_with_retry() {
 #
 # The same `cache.toml` the update code reads is parsed here, with the runner's bare `python3`
 # against the sources vendored beside this script. That is why `dandi_cache_utils.config` imports
-# nothing outside the standard library: at this point in the run no environment exists yet.
+# nothing outside the standard library: at this point in the run no environment exists yet, so the
+# module is run as a plain script rather than through the `dandi-cache` command, which needs one.
 # ---------------------------------------------------------------------------------------------
 CONFIG_FILE="${WORKSPACE}/cache.toml"
 if [ ! -f "${CONFIG_FILE}" ]; then
@@ -138,7 +139,10 @@ if [ ! -f "${CONFIG_FILE}" ]; then
   exit 1
 fi
 
-dandi_cache_utils() { PYTHONPATH="${UTILS_DIR}/src" python3 -m dandi_cache_utils "$@"; }
+config_as_shell() { python3 "${UTILS_DIR}/src/dandi_cache_utils/config.py" "$@"; }
+
+# Everything after the runner's environment is built goes through the installed command instead.
+dandi_cache() { "${RUNNER_VENV}/bin/dandi-cache" "$@"; }
 
 # Declared up front so that a malformed config fails the `:?` checks below rather than leaving a
 # stale or unset variable to surface much later, and so shellcheck can see them assigned. The eval
@@ -154,7 +158,7 @@ OPERATION_SCRIPT=""
 OPERATION_LABEL=""
 OPERATION_DEFAULT_LIMIT=""
 
-eval "$(dandi_cache_utils config shell "${CONFIG_FILE}" --operation "${OPERATION}")"
+eval "$(config_as_shell "${CONFIG_FILE}" --operation "${OPERATION}")"
 : "${CACHE_NAME:?cache.toml did not yield a cache name}"
 : "${OPERATION_SCRIPT:?cache.toml did not yield an entry point for operation ${OPERATION}}"
 
@@ -180,12 +184,14 @@ if [ -n "${LIMIT}" ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------
-# The runner's own environment: datalad and the container extension, pinned beside this script.
-# The cache repositories no longer carry these as dependencies of their processing environment.
+# The runner's own environment: datalad and the container extension, pinned beside this script,
+# plus the vendored library itself so the `dandi-cache` command is available here. The cache
+# repositories no longer carry any of these as dependencies of their processing environment.
 # ---------------------------------------------------------------------------------------------
-if [ ! -x "${RUNNER_VENV}/bin/datalad" ]; then
+if [ ! -x "${RUNNER_VENV}/bin/datalad" ] || [ ! -x "${RUNNER_VENV}/bin/dandi-cache" ]; then
   uv venv "${RUNNER_VENV}"
-  uv pip install --python "${RUNNER_VENV}/bin/python" -r "${SCRIPT_DIRECTORY}/runner-requirements.txt"
+  uv pip install --python "${RUNNER_VENV}/bin/python" \
+    -r "${SCRIPT_DIRECTORY}/runner-requirements.txt" "${UTILS_DIR}"
 fi
 datalad() { "${RUNNER_VENV}/bin/datalad" "$@"; }
 
@@ -223,7 +229,7 @@ mkdir -p derivatives logs
 # dataset is self-describing. It is rendered from `cache.toml` rather than copied from a file each
 # repository maintained by hand. No `|| true` mask, so a genuine save failure fails the run loudly
 # (`datalad save` already exits 0 when there is nothing to save).
-dandi_cache_utils dataset-description "${CONFIG_FILE}" --output dataset_description.json
+dandi_cache dataset-description "${CONFIG_FILE}" --output dataset_description.json
 datalad save -m "Update dataset_description.json" dataset_description.json
 
 # ---------------------------------------------------------------------------------------------
@@ -322,7 +328,7 @@ push_with_retry "${DS}" derivatives HEAD
 # artifact left by a smoke run from ever reaching consumers, and it replaces the guesswork of
 # globbing `derivatives/*.jsonl.gz`.
 # ---------------------------------------------------------------------------------------------
-dandi_cache_utils compress --base-directory "${DS}"
+dandi_cache compress --base-directory "${DS}"
 mkdir -p "${DISTDIR}/derivatives"
 
 published=0

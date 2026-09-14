@@ -13,9 +13,11 @@ requires-python = ">=3.11"
 license = { text = "CC-BY-4.0" }
 authors = [{ name = "Cody Baker" }]
 
-# The core has no third-party dependencies on purpose: `dandi_cache_utils.config` is parsed by
-# `bin/update_pipeline.sh` with the runner's bare `python3`, before any environment exists.
-dependencies = []
+# `rich-click` is for the `dandi-cache` command only; the library never imports it. Importing
+# `dandi_cache_utils` still pulls in nothing outside the standard library, which is what lets
+# `bin/update_pipeline.sh` read `cache.toml` with the runner's bare `python3` before any
+# environment exists. A test enforces that.
+dependencies = ["rich-click"]
 
 [project.optional-dependencies]
 # Fetching inputs straight from the public DANDI S3 bucket (the first-in-chain caches).
@@ -30,7 +32,7 @@ all = ["dandi-cache-utils[s3,archive,nwb]"]
 test = ["pytest"]
 
 [project.scripts]
-dandi-cache = "dandi_cache_utils.__main__:main"
+dandi-cache = "dandi_cache_utils._cli:dandi_cache_cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dandi_cache_utils"]

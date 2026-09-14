@@ -2,9 +2,9 @@
 
 This is the single source of truth that both halves of the pipeline read: the Python update
 logic imports `load_config`, and `bin/update_pipeline.sh` evaluates the output of
-`python3 -m dandi_cache_utils.config shell cache.toml` to learn the same facts. Everything a
-cache repository used to spell out twice -- once in `update_pipeline.sh` and once in
-`code/update.py` -- is declared here exactly once.
+`python3 config.py cache.toml` to learn the same facts. Everything a cache repository used to
+spell out twice -- once in `update_pipeline.sh` and once in `code/update.py` -- is declared here
+exactly once.
 
 This module deliberately imports nothing outside the standard library. The pipeline script
 parses `cache.toml` with the CI runner's bare `python3`, before any environment is built, so
@@ -333,16 +333,22 @@ def describe(config: CacheConfig, /) -> str:
 
 
 def _main(argv: list[str] | None = None) -> int:
+    """The bootstrap entry point, run as a plain script by `bin/update_pipeline.sh`.
+
+    This is deliberately not part of the `dandi-cache` command: the pipeline renders the config
+    before the runner has an environment, so this path must work with a bare `python3` and the
+    vendored sources alone. `dandi-cache config shell` prints the same thing, once there is an
+    environment to run it in.
+    """
     import argparse
 
-    parser = argparse.ArgumentParser(description="Inspect a DANDI cache's cache.toml.")
-    parser.add_argument("command", choices=["shell", "show"], help="`shell` emits bash assignments; `show` is human.")
+    parser = argparse.ArgumentParser(description="Render a DANDI cache's cache.toml as bash assignments.")
     parser.add_argument("config", type=pathlib.Path, nargs="?", default=None, help=f"Path to {CONFIG_FILE_NAME}.")
-    parser.add_argument("--operation", default=DEFAULT_OPERATION, help="Which operation to describe.")
+    parser.add_argument("--operation", default=DEFAULT_OPERATION, help="Which operation to render.")
     arguments = parser.parse_args(argv)
 
     config = read_config(arguments.config) if arguments.config is not None else load_config()
-    print(as_shell(config, operation=arguments.operation) if arguments.command == "shell" else describe(config))
+    print(as_shell(config, operation=arguments.operation))
     return 0
 
 

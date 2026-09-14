@@ -129,9 +129,13 @@ jobs:
           # (outside the image's virtual environment, so nothing is installed) importing the
           # vendored sources to parse a real cache.toml. This is what proves the core stayed
           # standard-library only in a shipped image, not just in the test matrix.
-          docker run --rm -v "$PWD":/repo:ro -e PYTHONPATH=/opt/dandi-cache-utils/src "${IMAGE}" \
-            /usr/bin/python3 -m dandi_cache_utils config shell \
+          docker run --rm -v "$PWD":/repo:ro "${IMAGE}" \
+            /usr/bin/python3 /opt/dandi-cache-utils/src/dandi_cache_utils/config.py \
             /repo/examples/content-id-to-valid-nwb-file/cache.toml
+          # And the command itself, which is what the pipeline uses once the runner has an
+          # environment: it needs the package installed, so this exercises the other half.
+          docker run --rm -v "$PWD":/repo:ro "${IMAGE}" \
+            dandi-cache config show /repo/examples/content-id-to-valid-nwb-file/cache.toml
 
   NotifyOnFailure:
     runs-on: ubuntu-latest

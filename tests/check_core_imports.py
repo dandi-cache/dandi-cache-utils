@@ -23,7 +23,23 @@ import ast
 import pathlib
 import sys
 
-BLOCKED = {"boto3", "botocore", "dandi", "h5py", "hdmf_zarr", "nwbinspector", "pynwb", "remfile", "s3fs", "zarr"}
+#: `click`/`rich_click` are here with the heavy scientific stack for the same reason: the command
+#: line is the only part of the distribution that needs them, and the pipeline's first step runs
+#: without any of it.
+BLOCKED = {
+    "boto3",
+    "botocore",
+    "click",
+    "dandi",
+    "h5py",
+    "hdmf_zarr",
+    "nwbinspector",
+    "pynwb",
+    "remfile",
+    "rich_click",
+    "s3fs",
+    "zarr",
+}
 
 #: Bound as attributes of the package by the re-exports in `__init__.py`, and hidden from
 #: completion on purpose: everything they define is re-exported, so naming them is a detour.
