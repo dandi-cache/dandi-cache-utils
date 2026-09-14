@@ -8,12 +8,13 @@ view of the package rather than about any function's return value:
    built. If anything in the core grows an import of boto3, h5py or pynwb, the orchestration
    stops working before the run even starts.
 
-2. The public namespace is the intended one. Every cache's `code/update.py` is written against
-   `dandi_cache.<TAB>`, so what completion lists is the API as far as anyone writing a cache is
-   concerned. Left alone, a package gets this backwards: the implementation modules bound by the
-   re-exports (`cli`, `config`, `dataset`, ...) show up, the lazily bound accessors (`nwb`, `s3`,
-   `api`) do not, and each module offers its own imports (`dataclasses`, `pathlib`, `typing`)
-   alongside its functions. `__dir__` fixes that, and this checks it stayed fixed.
+2. The public namespace is the intended one, at every level. Every cache's `code/update.py` is
+   written against `dandi_cache.<TAB>`, so what completion lists is the API as far as anyone
+   writing a cache is concerned. Left alone, a package gets this backwards: the implementation
+   modules bound by the re-exports (`cli`, `config`, `dataset`, ...) show up, the lazily bound
+   accessors (`nwb`, `s3`, `api`) do not, and every module offers its own imports (`gzip`,
+   `pathlib`, `typing`) alongside its functions. `__dir__` fixes that, and this checks it stayed
+   fixed for the package and for each module it contains.
 
 Run as a script, not under pytest: it has to observe a clean interpreter's `sys.modules`, and it
 deliberately never touches `nwb`, `s3` or `api`, whose dependencies it is asserting are absent.
@@ -134,16 +135,21 @@ def _public_definitions(tree: ast.Module) -> list[str]:
     return names
 
 
-def check_accessor_modules() -> list[str]:
-    """`dandi_cache.nwb.<TAB>` must list what the module defines, not what it imports.
+def check_every_module_declares_its_surface() -> list[str]:
+    """`dandi_cache.jsonl.<TAB>` must list what the module defines, not what it imports.
 
-    Read rather than imported: these modules are the ones whose dependencies this script exists to
-    prove absent, so it must not import them to inspect them.
+    Scoping only the modules a cache names directly was half a job: every module here is reachable
+    by `import dandi_cache_utils.<name>`, and any that does not say what it offers offers its own
+    imports instead -- `gzip`, `json`, `pathlib`, `typing` -- mixed in with its functions.
+
+    Read rather than imported: some of these modules exist to be loaded only when their
+    dependencies are present, which is the property this script is here to prove.
     """
     failures = []
-    for name in sorted(ACCESSOR_MODULES):
-        path = SOURCE_DIRECTORY / "dandi" / f"{name}.py"
+    for path in sorted(SOURCE_DIRECTORY.rglob("*.py")):
+        relative = path.relative_to(SOURCE_DIRECTORY.parent)
         tree = ast.parse(path.read_text(encoding="utf-8"))
+
         declared = None
         defines_dir = False
         for node in tree.body:
@@ -155,20 +161,28 @@ def check_accessor_modules() -> list[str]:
                 defines_dir = True
 
         if declared is None:
-            failures.append(f"{path.name} does not declare `__all__`")
-            continue
+            failures.append(f"{relative} does not declare `__all__`")
         if not defines_dir:
-            failures.append(f"{path.name} declares `__all__` but no `__dir__`, so completion ignores it")
+            failures.append(f"{relative} does not define `__dir__`, so completion ignores `__all__`")
+        if declared is None:
+            continue
+        if private := sorted(name for name in declared if name.startswith("_") and not name.startswith("__")):
+            failures.append(f"{relative} exposes private names in `__all__`: {private}")
+
+        # A package's `__all__` re-exports what it imports, and a private module's public functions
+        # are implementation detail, so the definitions have to match only for a public module.
+        if path.name == "__init__.py" or path.name.startswith("_"):
+            continue
         defined = _public_definitions(tree)
         if undeclared := sorted(set(defined) - set(declared)):
-            failures.append(f"{path.name} defines public names missing from `__all__`: {undeclared}")
+            failures.append(f"{relative} defines public names missing from `__all__`: {undeclared}")
         if phantom := sorted(set(declared) - set(defined)):
-            failures.append(f"{path.name} declares names it does not define: {phantom}")
+            failures.append(f"{relative} declares names it does not define: {phantom}")
     return failures
 
 
 def main() -> int:
-    failures = check_standard_library_only() + check_package_namespace() + check_accessor_modules()
+    failures = check_standard_library_only() + check_package_namespace() + check_every_module_declares_its_surface()
     for failure in failures:
         print(f"FAIL: {failure}", file=sys.stderr)
     if failures:

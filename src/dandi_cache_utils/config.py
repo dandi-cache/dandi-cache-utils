@@ -19,6 +19,31 @@ import sys
 import tomllib
 import typing
 
+#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
+#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
+__all__ = [
+    "CONFIG_FILE_NAME",
+    "CONFIG_PATH_VARIABLE",
+    "CacheConfig",
+    "DEFAULT_BIDS_VERSION",
+    "DEFAULT_INPUT_BRANCH",
+    "DEFAULT_LICENSE",
+    "DEFAULT_OPERATION",
+    "IMAGE_TEMPLATE",
+    "INPUT_FORMATS",
+    "InputCache",
+    "ORGANIZATION",
+    "Operation",
+    "REPOSITORY_URL_TEMPLATE",
+    "as_shell",
+    "describe",
+    "find_config",
+    "load_config",
+    "parse_config",
+    "read_config",
+    "underscored",
+]
+
 CONFIG_FILE_NAME = "cache.toml"
 
 # Every cache in the organization lives here and publishes its runtime image here, so both are
@@ -354,3 +379,7 @@ def _main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
+
+
+def __dir__() -> list[str]:
+    return list(__all__)

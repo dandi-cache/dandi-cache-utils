@@ -135,3 +135,7 @@ def dataset_description_command(file: pathlib.Path | None, output: pathlib.Path 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rendered)
     rich_click.echo(output)
+
+
+def __dir__() -> list[str]:
+    return list(__all__)

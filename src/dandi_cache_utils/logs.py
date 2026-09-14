@@ -19,6 +19,18 @@ import traceback
 import types
 import typing
 
+#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
+#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
+__all__ = [
+    "ErrorLog",
+    "LOG_DIRECTORY_NAME",
+    "MAX_LOG_FILE_SIZE_BYTES",
+    "StagedErrorLog",
+    "configure_logging",
+    "logger",
+    "peak_memory_mib",
+]
+
 LOG_DIRECTORY_NAME = "logs"
 
 # The `derivatives` dataset is persistent: error logs accumulate across every run forever and
@@ -190,3 +202,7 @@ class _StagedItem:
         if self.exception is None:
             return ""
         return f"{self.stage or 'processing'}: {type(self.exception).__name__}: {self.exception}"
+
+
+def __dir__() -> list[str]:
+    return list(__all__)

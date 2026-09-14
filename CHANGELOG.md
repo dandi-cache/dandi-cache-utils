@@ -40,6 +40,9 @@ examples needs neither.
 - The pipeline renders `cache.toml` by running `config.py` directly rather than through
   `python -m`, which drops a `runpy` warning and keeps the bootstrap independent of the command
   line. From the runner's virtual environment onwards it calls the installed `dandi-cache`.
+- Every module declares `__all__` and a `__dir__` that returns it, not just the package and the
+  three DANDI accessors. `dandi_cache.jsonl.<TAB>` listed `gzip`, `json`, `pathlib`, `shutil` and
+  `typing` alongside its functions; it lists its functions now.
 - The package declares its own completion surface. `dandi_cache.<TAB>` lists the API and the three
   accessor modules (`nwb`, `s3`, `api`) rather than the implementation modules bound as a side
   effect of the re-exports, and each accessor module lists what it defines rather than what it

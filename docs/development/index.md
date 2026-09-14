@@ -30,11 +30,14 @@ carries the `ai_generated` marker, so `pytest -m ai_generated` selects them and
 `config.py` directly. If anything in the core grew an import of boto3, h5py or click, the
 orchestration would break before a run even started. `tests/check_core_imports.py` fails on that.
 
-**The public namespace is the intended one.** Every cache's update code is written against
-`dandi_cache.<TAB>`, so what completion lists *is* the API as far as anyone writing a cache is
-concerned. Left alone, a package gets this backwards: the implementation modules bound as a side
-effect of the re-exports show up, the lazily bound accessors (`nwb`, `s3`, `api`) do not, and each
-module offers its own imports alongside its functions. The same check fails on any of that.
+**The public namespace is the intended one, at every level.** Every cache's update code is written
+against `dandi_cache.<TAB>`, so what completion lists *is* the API as far as anyone writing a cache
+is concerned. Left alone, a package gets this backwards: the implementation modules bound as a side
+effect of the re-exports show up, the lazily bound accessors (`nwb`, `s3`, `api`) do not, and every
+module offers its own imports alongside its functions, so `dandi_cache.jsonl.<TAB>` lists `gzip`
+and `pathlib` next to `read_lookup`. Every module here declares `__all__` and a `__dir__` that
+returns it, and the same check fails on a module that does not, on a public name missing from
+`__all__`, and on a private name exposed in it.
 
 ## Versioning
 

@@ -20,6 +20,17 @@ from .config import DEFAULT_OPERATION, CacheConfig, load_config
 from .dataset import TESTING_LIMIT, CacheDataset
 from .logs import logger
 
+#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
+#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
+__all__ = [
+    "BASE_DIRECTORY_HELP",
+    "LIMIT_HELP",
+    "TESTING_HELP",
+    "build_parser",
+    "open_dataset",
+    "parse_arguments",
+]
+
 BASE_DIRECTORY_HELP = (
     "The directory containing the `sourcedata`, `derivatives` and `logs` directories. Set to the "
     "mounted dataset path when run inside the pipeline container; defaults to the repository root."
@@ -111,3 +122,7 @@ def open_dataset(
         "; testing mode" if dataset.testing else "",
     )
     return dataset, arguments
+
+
+def __dir__() -> list[str]:
+    return list(__all__)

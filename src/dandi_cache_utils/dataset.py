@@ -17,6 +17,14 @@ from . import jsonl
 from .config import CacheConfig, InputCache, load_config
 from .logs import LOG_DIRECTORY_NAME, configure_logging
 
+#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
+#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
+__all__ = [
+    "CacheDataset",
+    "TESTING_FILE_PREFIX",
+    "TESTING_LIMIT",
+]
+
 TESTING_FILE_PREFIX = "testing_"
 
 # A testing run processes this many items: enough to exercise the real processing logic end to
@@ -113,3 +121,7 @@ class CacheDataset:
         file_path = self.output_file_path(name)
         jsonl.write_records(file_path, records)
         return file_path
+
+
+def __dir__() -> list[str]:
+    return list(__all__)

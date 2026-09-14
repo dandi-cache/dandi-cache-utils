@@ -60,6 +60,9 @@ few places this repository differs noted as such.
 
 ## Module and API conventions
 
+- Every module declares `__all__` and a `__dir__` that returns it. `__all__` lists what the module
+  defines, never what it imports, so completion on a module offers its API rather than its
+  dependencies. `tests/check_core_imports.py` enforces this for every module in the package.
 - Never expose private names in any module's `__all__`.
 - Never include code other than imports, `__all__`, simple import errors, or magic overrides in any
   `__init__.py`. **The magic overrides here do real work**, which is the one place this repository
