@@ -40,8 +40,9 @@ workflow enforces this, and `CHANGELOG.md` records what changed.
 ## Documentation
 
 The pages are built with Sphinx and published by Read the Docs from `docs/.readthedocs.yaml`.
-`fail_on_warning` is on, and CI builds with `-W`, so a broken cross-reference fails the pull
-request.
+`fail_on_warning` is on and Read the Docs builds every pull request, so a broken cross-reference
+fails there rather than after merge. Build it the same way locally with the command above before
+pushing.
 
 The examples are included from `examples/` with `literalinclude` rather than copied, so a page
 cannot drift from the code it shows.
