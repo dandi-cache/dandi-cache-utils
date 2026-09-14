@@ -21,12 +21,18 @@ examples needs neither.
 - Added the base images, published as `ghcr.io/dandi-cache/dandi-cache-utils:latest` (core, S3 and
   the DANDI API) and `:nwb` (plus the remote NWB reading stack). Each release also publishes the
   version as its own tag, so a cache can pin its orchestration to an exact release.
+- Added the `dandi-cache` command (`compress`, `config show`, `config shell`,
+  `dataset-description`), built on `rich-click`. The library never imports it, so importing
+  `dandi_cache_utils` still pulls in nothing outside the standard library.
 
 ### 🏠 Internal
 
 - `__version__` resolves from `pyproject.toml` -- from the installed distribution's metadata, or,
   for the copy vendored into the image and imported straight from `src/`, by reading the
   `pyproject.toml` shipped beside it. It is no longer a second copy of the version that can drift.
+- The pipeline renders `cache.toml` by running `config.py` directly rather than through
+  `python -m`, which drops a `runpy` warning and keeps the bootstrap independent of the command
+  line. From the runner's virtual environment onwards it calls the installed `dandi-cache`.
 - The package declares its own completion surface. `dandi_cache.<TAB>` lists the API and the three
   accessor modules (`nwb`, `s3`, `api`) rather than the implementation modules bound as a side
   effect of the re-exports, and each accessor module lists what it defines rather than what it
