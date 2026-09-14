@@ -84,11 +84,16 @@ A cache with a second entry point passes it through:
 ```yaml
 jobs:
   Refresh:
-    uses: dandi-cache/dandi-cache-utils/.github/workflows/cache-update.yml@main
-    with:
-      operation: refresh
-      limit: ${{ inputs.limit || '' }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: dandi-cache/dandi-cache-actions@v0
+        with:
+          token: ${{ secrets._GITHUB_API_KEY }}
+          operation: refresh
+          limit: ${{ inputs.limit || '' }}
 ```
 
 Keep a cross-workflow concurrency group where one already exists: two workflows that both push to

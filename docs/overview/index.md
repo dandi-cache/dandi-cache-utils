@@ -20,31 +20,28 @@ of `code/update.py`.
 
 ## What lives where
 
-Two repositories serve every cache, and the line between them is whether a file is *referenced* at
-run time or *copied once* at generation time.
+Three repositories serve every cache, and the line between them is whether a file is *referenced*
+at run time or *copied once* at generation time.
 
-| | [`dandi-cache-utils`](https://github.com/dandi-cache/dandi-cache-utils) | [`cache-template`](https://github.com/dandi-cache/cache-template) |
-|---|---|---|
-| **Holds** | The library — including the orchestration script, which ships inside it as `dandi_cache_utils.pipeline` — the base container image, and the reusable workflows `cache-update.yml` and `cache-image.yml` | The skeleton of a cache: `cache.toml`, `code/update.py`, `containers/Dockerfile`, the calling workflows, the README, and the setup skills |
-| **Reaches a cache by** | Being referenced — `uses:` for the workflows, `FROM` for the image | Being copied, when the repository is generated from it |
-| **A change to it** | Takes effect on every cache's next run | Affects only caches generated afterwards |
+| | [`dandi-cache-utils`](https://github.com/dandi-cache/dandi-cache-utils) | [`dandi-cache-actions`](https://github.com/dandi-cache/dandi-cache-actions) | [`cache-template`](https://github.com/dandi-cache/cache-template) |
+|---|---|---|---|
+| **Holds** | The library, the orchestration script it ships as `dandi_cache_utils.pipeline`, and the base container image | The two actions a cache's CI calls: the update and the image build | The skeleton of a cache: `cache.toml`, `code/update.py`, `containers/Dockerfile`, the calling workflows, the README, and the setup skills |
+| **Reaches a cache by** | Being referenced — `FROM` for the image, which carries the library and the script | Being referenced — `uses:` at the tag the cache pins | Being copied, when the repository is generated from it |
+| **A change to it** | Takes effect on the next image build a cache picks up | Takes effect on every cache's next run, at the pinned tag | Affects only caches generated afterwards |
 
-That is why the reusable workflows are here rather than in the template. A template's files are
-copied once and then diverge — which is the problem this library exists to end, and precisely what
-happened to the ~130-line update workflow each cache used to carry. A reusable workflow is resolved
-live from this repository on every run, so a fix reaches all seventeen caches at once without
-anyone touching them.
+A template's files are copied once and then diverge — which is the problem this library exists to
+end, and precisely what happened to the ~130-line update workflow each cache used to carry. What is
+referenced instead is fixed once for everyone.
 
-They also belong next to what they run. `cache-update.yml` pulls the cache's image, extracts
-`/opt/dandi-cache-utils` from it, and runs the packaged `update_pipeline.sh` from there;
-`cache-image.yml`
-checks that the image it just built really was built `FROM` this base. Workflow, script and image
-are three parts of one orchestration, released together, and splitting them across repositories
-would mean a change to any one of them could silently disagree with the others.
+The actions and the pipeline they run are split across two repositories on purpose. The action is
+CI glue with an interface of its own — its inputs — and it is versioned at that interface, so a
+cache pins `@v0` there while tracking the runtime image separately. The orchestration script is not
+CI glue: it is the thing being run, and it ships inside the image so that the digest recorded in a
+run's provenance pins the pipeline and the runtime environment together. The action's job is to
+pull that image, extract the script, and run it.
 
 What the template holds is the *caller*: a cache's own `update.yml` is a schedule, a concurrency
-group, dispatch inputs and three lines delegating here. That is genuinely per-cache, so it is
-copied and then owned.
+group, dispatch inputs and one step. That is genuinely per-cache, so it is copied and then owned.
 
 ## The three branches
 

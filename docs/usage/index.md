@@ -135,11 +135,19 @@ A cache that is a pure filter or reshaping of its input, with no per-item work w
 ```yaml
 jobs:
   Update:
-    uses: dandi-cache/dandi-cache-utils/.github/workflows/cache-update.yml@main
-    with:
-      testing: ${{ inputs.testing || false }}
-      limit: ${{ inputs.limit || '' }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 330
+    steps:
+      - uses: dandi-cache/dandi-cache-actions@v0
+        with:
+          token: ${{ secrets._GITHUB_API_KEY }}
+          testing: ${{ inputs.testing || false }}
+          limit: ${{ inputs.limit || '' }}
+          mail-username: ${{ secrets.MAIL_USERNAME }}
+          mail-password: ${{ secrets.MAIL_PASSWORD }}
 ```
 
 A cache with a second entry point adds a job passing `operation: refresh`. What stays in the

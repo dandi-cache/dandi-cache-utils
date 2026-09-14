@@ -17,8 +17,9 @@ examples needs neither.
 - Added the orchestration script, one for every cache, shipped inside the package as
   `dandi_cache_utils.pipeline` and driven by the cache's own
   `cache.toml` rather than by straight-line code per repository.
-- Added the reusable `cache-update.yml` and `cache-image.yml` workflows, which reduce a cache's own
-  `update.yml` to a schedule plus three lines.
+- The CI a cache calls lives in [`dandi-cache-actions`](https://github.com/dandi-cache/dandi-cache-actions)
+  rather than here: they are actions, versioned at their own interface, and a reusable workflow
+  cannot be listed on the Marketplace. A cache's own `update.yml` is a schedule and one step.
 - Added the base images, published as `ghcr.io/dandi-cache/dandi-cache-utils:latest` (core, S3 and
   the DANDI API) and `:nwb` (plus the remote NWB reading stack). Each release also publishes the
   version as its own tag, so a cache can pin its orchestration to an exact release.
