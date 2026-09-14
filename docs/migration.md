@@ -9,8 +9,8 @@ Do the migration in the order below and stop at step 5 to verify before deleting
 
 ## 1. Write `cache.toml`
 
-Copy [`templates/cache.toml`](../templates/cache.toml) to the repository root and fill it in from
-what the repository already says:
+Copy [`cache.toml`](https://github.com/dandi-cache/cache-template/blob/main/cache.toml) from
+`cache-template` to the repository root and fill it in from what the repository already says:
 
 - `cache.name` — the repository name.
 - `[[inputs]]` — one entry per `INPUT_SUBDATASET_URL` (or per bespoke `*_SUBDATASET_*` pair) in
@@ -76,8 +76,8 @@ pipeline installs them on the runner from its own pinned requirements.
 ## 4. Replace the workflows
 
 Both become a few lines that delegate to the shared workflows — see
-[`templates/.github/workflows/`](../templates/.github/workflows). Keep the schedule, the
-concurrency group and the dispatch inputs; everything else goes.
+[`cache-template`'s workflows](https://github.com/dandi-cache/cache-template/tree/main/.github/workflows).
+Keep the schedule, the concurrency group and the dispatch inputs; everything else goes.
 
 A cache with a second entry point passes it through:
 

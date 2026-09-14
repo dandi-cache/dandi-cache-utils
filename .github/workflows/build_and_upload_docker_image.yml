@@ -48,8 +48,12 @@ jobs:
         include:
           - target: core
             suffix: latest
+            # The version tag for the core image is the bare version; the NWB variant carries the
+            # same version with its own suffix.
+            version_suffix: ""
           - target: nwb
             suffix: nwb
+            version_suffix: "-nwb"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -62,11 +66,15 @@ jobs:
         env:
           IMAGE: ghcr.io/${{ github.repository_owner }}/dandi-cache-utils
           SUFFIX: ${{ matrix.suffix }}
+          VERSION_SUFFIX: ${{ matrix.version_suffix }}
         run: |
+          # The version comes from the tree being built, which is the only place it is written.
+          # A cache that wants its orchestration held still pins this tag rather than `:latest`.
+          VERSION=$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "list=${IMAGE}:pr-${{ github.event.number }}-${SUFFIX}" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.ref_name }}" = "${{ github.event.repository.default_branch }}" ]; then
-            echo "list=${IMAGE}:${SUFFIX},${IMAGE}:${{ github.sha }}-${SUFFIX}" >> "$GITHUB_OUTPUT"
+            echo "list=${IMAGE}:${SUFFIX},${IMAGE}:${VERSION}${VERSION_SUFFIX},${IMAGE}:${{ github.sha }}-${SUFFIX}" >> "$GITHUB_OUTPUT"
           else
             BRANCH=$(printf '%s' "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
             echo "list=${IMAGE}:dev-${BRANCH}-${SUFFIX}" >> "$GITHUB_OUTPUT"
@@ -102,7 +110,20 @@ jobs:
         run: |
           IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
           docker run --rm "${IMAGE}" bash -n /opt/dandi-cache-utils/bin/update_pipeline.sh
-          docker run --rm "${IMAGE}" python -c "import dandi_cache_utils; print(dandi_cache_utils.__version__)"
+          # The version is declared once, in `pyproject.toml`, and reaches the image by two routes:
+          # the installed distribution's metadata, and -- for the vendored sources the runner
+          # imports without installing anything -- the `pyproject.toml` shipped beside them. Both
+          # must agree, and with the tag this image is about to be published under.
+          VERSION=$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          READ_VERSION='import dandi_cache_utils; print(dandi_cache_utils.__version__)'
+          INSTALLED=$(docker run --rm "${IMAGE}" python -c "${READ_VERSION}")
+          VENDORED=$(docker run --rm -e PYTHONPATH=/opt/dandi-cache-utils/src "${IMAGE}" \
+            /usr/bin/python3 -c "${READ_VERSION}")
+          if [ "${INSTALLED}" != "${VERSION}" ] || [ "${VENDORED}" != "${VERSION}" ]; then
+            echo "ERROR: the tree declares ${VERSION}, but the image reports ${INSTALLED} installed" >&2
+            echo "       and ${VENDORED} from the vendored sources." >&2
+            exit 1
+          fi
           docker run --rm "${IMAGE}" test -f /opt/dandi-cache-utils/bin/runner-requirements.txt
           # Exercise the exact path the pipeline takes on the runner: the *system* interpreter
           # (outside the image's virtual environment, so nothing is installed) importing the

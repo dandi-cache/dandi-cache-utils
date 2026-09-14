@@ -19,3 +19,8 @@ def __getattr__(name: str):
         globals()[name] = module
         return module
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """The three submodules, which are otherwise invisible to completion until first used."""
+    return list(__all__)

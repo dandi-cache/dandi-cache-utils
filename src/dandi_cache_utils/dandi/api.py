@@ -10,6 +10,14 @@ the cache has to go from a Dandiset path to the bytes, or wants asset metadata s
 
 import typing
 
+#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
+#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
+__all__ = [
+    "AssetResolver",
+    "client",
+    "split_location",
+]
+
 
 def client():
     """A tokenless DANDI API client, so only public Dandisets are ever reachable."""
@@ -51,3 +59,7 @@ def split_location(location: typing.Mapping, /) -> tuple[str, str]:
     """Unpack the `{dandiset_id: path}` single-entry mapping the caches use to name an asset."""
     ((dandiset_id, path),) = location.items()
     return dandiset_id, path
+
+
+def __dir__() -> list[str]:
+    return list(__all__)

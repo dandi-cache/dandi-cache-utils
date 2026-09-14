@@ -53,7 +53,13 @@ from .runner import (
     select_stale,
 )
 
-__version__ = "0.1.0"
+#: The modules a cache reaches for by name. They are bound on first use rather than imported
+#: here, so a cache that only reads S3 never pays for `pynwb`. They are deliberately absent from
+#: `__all__`: `from dandi_cache_utils import *` would otherwise drag in h5py and boto3.
+_LAZY_SUBMODULES = ("api", "nwb", "s3")
+
+#: `pyproject.toml` is the only place the version is written; `__version__` resolves from it.
+_DISTRIBUTION_NAME = "dandi-cache-utils"
 
 __all__ = [
     "BatchResult",
@@ -93,16 +99,62 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
-    """Expose `dandi_cache_utils.nwb` / `.s3` / `.api` lazily.
+def _read_version() -> str:
+    """Resolve the version from the single place it is declared.
 
-    They are imported on first use so that the core -- which the pipeline parses with the CI
-    runner's bare `python3` -- never pulls in boto3, h5py or pynwb just to read `cache.toml`.
+    An installed copy carries it in its distribution metadata. The copy vendored into the image is
+    also imported straight from `src/` by the runner's bare `python3`, which installs nothing, so
+    that one reads `[project] version` out of the `pyproject.toml` shipped beside the sources.
+    Either way the answer comes from `pyproject.toml`, which is the only place it is written.
     """
-    if name in ("api", "nwb", "s3"):
+    import importlib.metadata
+
+    try:
+        return importlib.metadata.version(_DISTRIBUTION_NAME)
+    except importlib.metadata.PackageNotFoundError:
+        import pathlib
+        import tomllib
+
+        pyproject_path = pathlib.Path(__file__).resolve().parents[2] / "pyproject.toml"
+        if not pyproject_path.is_file():
+            raise
+        return tomllib.loads(pyproject_path.read_text(encoding="utf-8"))["project"]["version"]
+
+
+def __getattr__(name: str):
+    """Expose `dandi_cache_utils.nwb` / `.s3` / `.api`, and `__version__`, on first use.
+
+    The submodules are imported on demand so that the core -- which the pipeline parses with the
+    CI runner's bare `python3` -- never pulls in boto3, h5py or pynwb just to read `cache.toml`.
+    `__version__` is resolved on demand for the same reason: reading it costs a metadata lookup
+    that the orchestration's hot path has no use for.
+
+    Imports are local here rather than at the top of the module precisely because the point is to
+    keep them out of the core import.
+    """
+    if name in _LAZY_SUBMODULES:
         import importlib
 
         module = importlib.import_module(f".dandi.{name}", __name__)
         globals()[name] = module
         return module
+    if name == "__version__":
+        version = _read_version()
+        globals()["__version__"] = version
+        return version
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """The public surface, which is what an editor or a shell offers on `dandi_cache.<TAB>`.
+
+    Without this, completion gets the namespace backwards: it lists the implementation modules
+    (`cli`, `config`, `dataset`, `jsonl`, `logs`, `runner`, `dandi`), which are bound as
+    attributes only as a side effect of the re-exports above and whose contents are all
+    re-exported anyway, while hiding `nwb`, `s3` and `api`, which are the modules a cache actually
+    reaches for and are bound only once used.
+
+    Hiding them from completion does not unimport them: `import dandi_cache_utils.config` still
+    works, and is how the pipeline reads `cache.toml`.
+    """
+    return sorted([*__all__, *_LAZY_SUBMODULES])

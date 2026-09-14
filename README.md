@@ -58,8 +58,9 @@ Gone from every cache: `code/update_pipeline.sh` (~200 lines), `code/compress.py
 update workflow, the ~60-line build workflow, `envs/pyproject.toml`, `dataset_description.json`,
 and the boilerplate half of `code/update.py`.
 
-[`templates/`](templates) is the starting point for a new cache; [`examples/`](examples) holds real
-caches rewritten on this library.
+[`cache-template`](https://github.com/dandi-cache/cache-template) is the starting point for a new
+cache: it is generated from, and its setup skill walks through declaring the cache rather than
+reimplementing a pipeline. [`examples/`](examples) holds real caches rewritten on this library.
 
 
 

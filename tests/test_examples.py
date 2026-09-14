@@ -7,7 +7,6 @@ repository's next scheduled run.
 
 import compileall
 import pathlib
-import tomllib
 
 import pytest
 
@@ -15,7 +14,6 @@ from dandi_cache_utils import config
 
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXAMPLES = sorted(path for path in (REPOSITORY_ROOT / "examples").iterdir() if path.is_dir())
-TEMPLATE = REPOSITORY_ROOT / "templates"
 
 
 def test_there_are_worked_examples():
@@ -43,20 +41,3 @@ def test_every_declared_operation_has_a_script(example):
 @pytest.mark.parametrize("example", EXAMPLES, ids=lambda path: path.name)
 def test_every_example_compiles(example):
     assert compileall.compile_dir(str(example / "code"), quiet=1), f"{example.name} has a syntax error"
-
-
-def test_the_template_config_is_a_valid_starting_point():
-    # The template ships with placeholders in place of the cache name, so it is checked for shape
-    # by substituting a plausible name rather than by being read as-is.
-    text = (TEMPLATE / config.CONFIG_FILE_NAME).read_text()
-    text = text.replace("<cache-name>", "my-cache").replace("<input-cache-name>", "up-stream")
-
-    parsed = config.parse_config(tomllib.loads(text))
-
-    assert parsed.name == "my-cache"
-    assert parsed.only_input.name == "up-stream"
-    assert parsed.operation("update").script == "code/update.py"
-
-
-def test_the_template_code_compiles():
-    assert compileall.compile_dir(str(TEMPLATE / "code"), quiet=1)

@@ -20,6 +20,28 @@ import datetime
 import json
 import typing
 
+#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
+#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
+__all__ = [
+    "ABSENT_ERROR_CODES",
+    "ASSETS_MANIFEST_KEY",
+    "BUCKET",
+    "DANDISET_MANIFEST_KEY",
+    "PUBLIC_BASE_URL",
+    "REGION",
+    "anonymous_client",
+    "blob_key",
+    "blob_url",
+    "concurrent_map",
+    "dandiset_created",
+    "dandiset_metadata",
+    "get_json",
+    "get_object_bytes",
+    "object_exists",
+    "parse_timestamp",
+    "zarr_key",
+]
+
 BUCKET = "dandiarchive"
 REGION = "us-east-2"
 PUBLIC_BASE_URL = f"https://{BUCKET}.s3.amazonaws.com"
@@ -142,3 +164,7 @@ def concurrent_map(
         return []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         return list(executor.map(function, items))
+
+
+def __dir__() -> list[str]:
+    return list(__all__)

@@ -19,6 +19,26 @@ import typing
 
 from . import s3
 
+#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
+#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
+__all__ = [
+    "HDF5",
+    "Structure",
+    "ZARR",
+    "count_datasets",
+    "count_groups",
+    "detect_layout",
+    "electrical_series_paths",
+    "inspect_nwbfile",
+    "inspector_config",
+    "is_nwb_path",
+    "is_zarr_path",
+    "open_hdf5",
+    "open_nwbfile",
+    "open_zarr",
+    "walk_structure",
+]
+
 HDF5 = "hdf5"
 ZARR = "zarr"
 
@@ -203,3 +223,7 @@ def electrical_series_paths(url: str, /, *, prefix: str = "acquisition/") -> lis
         )
     )
     return [series_path for series_path in paths if series_path.startswith(prefix)]
+
+
+def __dir__() -> list[str]:
+    return list(__all__)
