@@ -44,14 +44,8 @@ jobs:
       - name: Run the tests
         run: .venv/bin/pytest -q
 
-      - name: Check the pipeline script
-        run: |
-          bash -n src/dandi_cache_utils/pipeline/update_pipeline.sh
-          sudo apt-get update || true
-          sudo apt-get install -y shellcheck
-          shellcheck src/dandi_cache_utils/pipeline/update_pipeline.sh
-
       - name: Check the core imports without third-party packages
-        # `update_pipeline.sh` reads `cache.toml` with the runner's bare `python3`. If anything in
-        # the core grows an import of boto3 or h5py, the orchestration breaks before it starts.
+        # The pipeline reads `cache.toml` with the runner's bare `python3`. If anything in the core
+        # grows an import of boto3, h5py or click, the orchestration breaks before a run starts.
+        # Not a lint -- it observes a clean interpreter's `sys.modules`, so it needs the matrix.
         run: .venv/bin/python tests/check_core_imports.py

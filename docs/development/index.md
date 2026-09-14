@@ -9,9 +9,13 @@ ordering, what a failure means, and whether testing mode can touch the real cach
 ```bash
 uv run --with ".[test]" pytest
 uv run --with ".[test]" python tests/check_core_imports.py
-shellcheck src/dandi_cache_utils/pipeline/update_pipeline.sh
 python -m sphinx -b html -W docs docs/_build/html
+pre-commit run --all-files
 ```
+
+The formatters and linters -- black, ruff, shellcheck and codespell -- are pre-commit hooks, so
+they run on every pull request through `pre-commit.ci` rather than in the test matrix. Only checks
+that need a particular interpreter belong there.
 
 ## Two rules the tests enforce
 
