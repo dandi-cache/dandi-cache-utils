@@ -23,7 +23,7 @@ of `code/update.py`.
 Three repositories serve every cache, and the line between them is whether a file is *referenced*
 at run time or *copied once* at generation time.
 
-| | [`dandi-cache-utils`](https://github.com/dandi-cache/dandi-cache-utils) | [`dandi-cache-actions`](https://github.com/dandi-cache/dandi-cache-actions) | [`cache-template`](https://github.com/dandi-cache/cache-template) |
+| | [`dandi-cache-utils`](https://github.com/dandi-cache/dandi-cache-utils) | [`dandi-cache-action`](https://github.com/dandi-cache/dandi-cache-action) | [`cache-template`](https://github.com/dandi-cache/cache-template) |
 |---|---|---|---|
 | **Holds** | The library, the orchestration script it ships as `dandi_cache_utils.pipeline`, and the base container image | The two actions a cache's CI calls: the update and the image build | The skeleton of a cache: `cache.toml`, `code/update.py`, `containers/Dockerfile`, the calling workflows, the README, and the setup skills |
 | **Reaches a cache by** | Being referenced — `FROM` for the image, which carries the library and the script | Being referenced — `uses:` at the tag the cache pins | Being copied, when the repository is generated from it |

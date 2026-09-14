@@ -148,7 +148,7 @@ Worth stating plainly, because it is what the library must not try to absorb:
 | Duplicated thing | Where it lives now |
 |---|---|
 | The 200-line orchestration, six times | `dandi_cache_utils.pipeline`, vendored in the image |
-| The update and build workflows, six times | Two actions in [`dandi-cache-actions`](https://github.com/dandi-cache/dandi-cache-actions) |
+| The update and build workflows, six times | Two actions in [`dandi-cache-action`](https://github.com/dandi-cache/dandi-cache-action) |
 | The Dockerfile, six times | `containers/Dockerfile`, published as the base image |
 | Input URLs, paths, branches, outputs, entry points, batch sizes | `cache.toml`, read by both the shell and the Python |
 | `dataset_description.json` | Rendered from `cache.toml` |
