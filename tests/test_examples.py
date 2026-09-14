@@ -1,6 +1,6 @@
 """The worked conversions are checked, not just written.
 
-`examples/` holds real caches rewritten on this library. They are the documentation of what a cache
+`docs/examples/` holds real caches rewritten on this library. They are the documentation of what a cache
 repository becomes, so an API change that would break them should fail here rather than in a cache
 repository's next scheduled run.
 """
@@ -13,12 +13,12 @@ import pytest
 from dandi_cache_utils import config
 
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parent.parent
-EXAMPLES = sorted(path for path in (REPOSITORY_ROOT / "examples").iterdir() if path.is_dir())
+EXAMPLES = sorted(path for path in (REPOSITORY_ROOT / "docs" / "examples").iterdir() if path.is_dir())
 
 
 @pytest.mark.ai_generated
 def test_there_are_worked_examples():
-    assert EXAMPLES, "examples/ should hold at least one converted cache."
+    assert EXAMPLES, "docs/examples/ should hold at least one converted cache."
 
 
 @pytest.mark.ai_generated

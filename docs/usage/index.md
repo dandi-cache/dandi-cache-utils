@@ -128,7 +128,7 @@ for the choice rather than picking one quietly.
 
 A cache that is a pure filter or reshaping of its input, with no per-item work worth resuming, uses
 {func}`~dandi_cache_utils.runner.run_full_rebuild` instead — see
-[`content-id-to-nwb-file`](../examples/content-id-to-nwb-file.md).
+[`content-id-to-nwb-file`](../examples/content-id-to-nwb-file/index.md).
 
 ## The workflows
 

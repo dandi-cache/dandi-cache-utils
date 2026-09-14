@@ -5,13 +5,13 @@ nothing to resume — so it recomputes the whole subset each run.
 
 ## The declaration
 
-```{literalinclude} ../../examples/content-id-to-nwb-file/cache.toml
+```{literalinclude} cache.toml
 :language: toml
 ```
 
 ## The operation
 
-```{literalinclude} ../../examples/content-id-to-nwb-file/code/update.py
+```{literalinclude} code/update.py
 :language: python
 ```
 

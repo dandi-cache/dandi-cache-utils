@@ -57,8 +57,10 @@ The pages are built with Sphinx and published by Read the Docs from `docs/.readt
 fails there rather than after merge. Build it the same way locally with the command above before
 pushing.
 
-The examples are included from `examples/` with `literalinclude` rather than copied, so a page
-cannot drift from the code it shows.
+Each worked example is a real cache's files with a page beside them, under
+`docs/examples/<name>/`. The page includes the files with `literalinclude` rather than copying
+them, so it cannot drift from the code it shows, and the test suite parses every `cache.toml` and
+compiles every `code/` directory there.
 
 ## Releasing
 

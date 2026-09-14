@@ -52,9 +52,9 @@ The three shapes are worked through in [the examples](../examples/index.md):
 
 | Example | Shape |
 |---|---|
-| [`valid-nwb-file-to-number-of-groups`](../examples/valid-nwb-file-to-number-of-groups.md) | Incremental, heavy per item, skip on failure, one output |
-| [`content-id-to-nwb-file`](../examples/content-id-to-nwb-file.md) | A cheap filter with nothing to resume, so a full rebuild each run |
-| [`content-id-to-valid-nwb-file`](../examples/content-id-to-valid-nwb-file.md) | Incremental, three parallel outputs, record on failure, plus a second `refresh` entry point |
+| [`valid-nwb-file-to-number-of-groups`](../examples/valid-nwb-file-to-number-of-groups/index.md) | Incremental, heavy per item, skip on failure, one output |
+| [`content-id-to-nwb-file`](../examples/content-id-to-nwb-file/index.md) | A cheap filter with nothing to resume, so a full rebuild each run |
+| [`content-id-to-valid-nwb-file`](../examples/content-id-to-valid-nwb-file/index.md) | Incremental, three parallel outputs, record on failure, plus a second `refresh` entry point |
 
 
 ## 3. Replace the container

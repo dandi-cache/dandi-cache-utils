@@ -9,15 +9,15 @@ Between them they cover the three shapes a cache takes:
 
 | Example | Shape |
 |---|---|
-| [`valid-nwb-file-to-number-of-groups`](valid-nwb-file-to-number-of-groups.md) | Incremental, heavy per item, skip on failure, one output |
-| [`content-id-to-nwb-file`](content-id-to-nwb-file.md) | A cheap filter with nothing to resume, so a full rebuild each run |
-| [`content-id-to-valid-nwb-file`](content-id-to-valid-nwb-file.md) | Incremental, three parallel outputs, record on failure, plus a second entry point |
+| [`valid-nwb-file-to-number-of-groups`](valid-nwb-file-to-number-of-groups/index.md) | Incremental, heavy per item, skip on failure, one output |
+| [`content-id-to-nwb-file`](content-id-to-nwb-file/index.md) | A cheap filter with nothing to resume, so a full rebuild each run |
+| [`content-id-to-valid-nwb-file`](content-id-to-valid-nwb-file/index.md) | Incremental, three parallel outputs, record on failure, plus a second entry point |
 
 ```{toctree}
 :maxdepth: 1
 :hidden:
 
-valid-nwb-file-to-number-of-groups
-content-id-to-nwb-file
-content-id-to-valid-nwb-file
+valid-nwb-file-to-number-of-groups/index
+content-id-to-nwb-file/index
+content-id-to-valid-nwb-file/index
 ```

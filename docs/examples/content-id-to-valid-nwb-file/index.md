@@ -5,7 +5,7 @@ by content ID: the verdict, when it was checked, and the messages behind it.
 
 ## The declaration
 
-```{literalinclude} ../../examples/content-id-to-valid-nwb-file/cache.toml
+```{literalinclude} cache.toml
 :language: toml
 ```
 
@@ -15,14 +15,14 @@ consumers.
 
 ## The operation
 
-```{literalinclude} ../../examples/content-id-to-valid-nwb-file/code/update.py
+```{literalinclude} code/update.py
 :language: python
 ```
 
 The per-item work and the side outputs live in a small module beside it, which is the right place
 for genuinely per-cache logic:
 
-```{literalinclude} ../../examples/content-id-to-valid-nwb-file/code/_common.py
+```{literalinclude} code/_common.py
 :language: python
 ```
 
@@ -32,7 +32,7 @@ The NWB Inspector itself evolves, so what was recorded has to be re-assessed. Th
 bespoke environment variables threaded through this one cache's shell script. It is a declared
 entry point now, run by the same pipeline with `OPERATION=refresh`:
 
-```{literalinclude} ../../examples/content-id-to-valid-nwb-file/code/refresh.py
+```{literalinclude} code/refresh.py
 :language: python
 ```
 

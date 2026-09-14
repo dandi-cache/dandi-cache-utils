@@ -8,7 +8,7 @@ import pytest
 
 import dandi_cache_utils
 
-EXAMPLE = "examples/content-id-to-valid-nwb-file/cache.toml"
+EXAMPLE = "docs/examples/content-id-to-valid-nwb-file/cache.toml"
 
 
 def invoke(*arguments: str) -> click.testing.Result:

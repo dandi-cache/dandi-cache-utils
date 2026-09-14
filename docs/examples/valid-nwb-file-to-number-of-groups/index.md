@@ -10,13 +10,13 @@ walks.
 
 ## The declaration
 
-```{literalinclude} ../../examples/valid-nwb-file-to-number-of-groups/cache.toml
+```{literalinclude} cache.toml
 :language: toml
 ```
 
 ## The operation
 
-```{literalinclude} ../../examples/valid-nwb-file-to-number-of-groups/code/update.py
+```{literalinclude} code/update.py
 :language: python
 ```
 
