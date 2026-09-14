@@ -1,0 +1,9 @@
+# What it takes to build the documentation.
+#
+# Kept here rather than in the package metadata: this project is not published to PyPI -- it is
+# vendored through container images -- so its dependency lists describe what the caches need at
+# run time, not what a docs build needs.
+sphinx>=8.0
+pydata-sphinx-theme>=0.16
+myst-parser>=4.0
+sphinx-copybutton>=0.5
