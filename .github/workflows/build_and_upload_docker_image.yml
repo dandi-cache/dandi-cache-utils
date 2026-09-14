@@ -48,12 +48,8 @@ jobs:
         include:
           - target: core
             suffix: latest
-            # The version tag for the core image is the bare version; the NWB variant carries the
-            # same version with its own suffix.
-            version_suffix: ""
           - target: nwb
             suffix: nwb
-            version_suffix: "-nwb"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -66,11 +62,15 @@ jobs:
         env:
           IMAGE: ghcr.io/${{ github.repository_owner }}/dandi-cache-utils
           SUFFIX: ${{ matrix.suffix }}
-          VERSION_SUFFIX: ${{ matrix.version_suffix }}
         run: |
           # The version comes from the tree being built, which is the only place it is written.
           # A cache that wants its orchestration held still pins this tag rather than `:latest`.
           VERSION=$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          # The core image's version tag is the bare version; a variant carries its own suffix.
+          VERSION_SUFFIX=""
+          if [ "${SUFFIX}" != "latest" ]; then
+            VERSION_SUFFIX="-${SUFFIX}"
+          fi
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "list=${IMAGE}:pr-${{ github.event.number }}-${SUFFIX}" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.ref_name }}" = "${{ github.event.repository.default_branch }}" ]; then
