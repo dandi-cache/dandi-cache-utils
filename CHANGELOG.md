@@ -29,6 +29,11 @@ examples needs neither.
 
 ### 🏠 Internal
 
+- The image build now runs the test suite against the library as installed in the image, in both
+  the `:latest` and `:nwb` stages. The test matrix only ever exercised the sources on the runner,
+  where the third-party packages the core must not import are not installed, so
+  `check_core_imports.py` was passing partly by luck; inside the image they are present.
+
 - Adopted the organization's `AGENTS.md` conventions. Every test carries the `ai_generated` marker,
   the tests import only what `__init__.py` exposes publicly (`dandi_cache_cli` among it, bound
   lazily so the library still imports without rich-click), and version resolution moved out of

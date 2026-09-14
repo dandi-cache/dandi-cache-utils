@@ -25,6 +25,12 @@ carries the `ai_generated` marker, so `pytest -m ai_generated` selects them and
 
 ## Two rules the tests enforce
 
+These two run in the image as well as on the runner. The `Test` matrix proves the sources work on
+three interpreters; the image build runs the same suite against the library as *installed in the
+image*, which is the artifact every cache actually runs. That second run is where the first rule
+below is genuinely tested: on the runner boto3, h5py and pynwb are not installed at all, so the
+core could hardly import them, while in the image they are.
+
 **The core imports nothing outside the standard library.** The pipeline script parses
 `cache.toml` with the CI runner's bare `python3`, before any environment exists, by running
 `config.py` directly. If anything in the core grew an import of boto3, h5py or click, the

@@ -150,6 +150,22 @@ jobs:
           docker run --rm -v "$PWD":/repo:ro "${IMAGE}" \
             dandi-cache config show /repo/docs/examples/content-id-to-valid-nwb-file/cache.toml
 
+      - name: Run the test suite against the library as installed in the image
+        # The `Test` workflow proves the *sources* work on three interpreters. This proves the
+        # artifact does: the image is what every cache actually runs, and the tests here import the
+        # installed distribution rather than `src/`, because the checkout is mounted at /repo and
+        # the package is not under it.
+        #
+        # It is worth the minute in the `nwb` image especially. On the runner,
+        # `check_core_imports.py` passes partly by luck -- boto3, h5py and pynwb are not installed
+        # there at all, so the core could hardly import them. In this image they are installed, so
+        # the check finally means what it says: the core does not reach for them when it could.
+        run: |
+          IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
+          # The mount is read-only, so bytecode goes to a writable prefix and pytest keeps no cache.
+          docker run --rm -v "$PWD":/repo:ro -w /repo -e PYTHONPYCACHEPREFIX=/tmp/pycache "${IMAGE}" \
+            bash -c 'pip install --quiet pytest && python -m pytest tests -q -p no:cacheprovider && python tests/check_core_imports.py'
+
   NotifyOnFailure:
     runs-on: ubuntu-latest
     needs: [ BuildAndPush ]
