@@ -1,9 +1,7 @@
 # Worked examples
 
-Three real caches, rewritten on this library. They are not sketches: each is the repository's own
-`code/update.py` after the boilerplate was removed, and the test suite parses their `cache.toml`
-and compiles their code on every run, so an API change that would break them fails here rather
-than in a cache's next scheduled update.
+Three real caches, rewritten on this library.
+They are not sketches: each is the repository's own `code/update.py` after the boilerplate was removed, and the test suite parses their `cache.toml` and compiles their code on every run, so an API change that would break them fails here rather than in a cache's next scheduled update.
 
 Between them they cover the three shapes a cache takes:
 
