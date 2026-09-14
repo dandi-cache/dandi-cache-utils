@@ -147,7 +147,7 @@ Worth stating plainly, because it is what the library must not try to absorb:
 
 | Duplicated thing | Where it lives now |
 |---|---|
-| The 200-line orchestration, six times | `bin/update_pipeline.sh`, vendored in the image |
+| The 200-line orchestration, six times | `dandi_cache_utils.pipeline`, vendored in the image |
 | The update and build workflows, six times | `.github/workflows/cache-update.yml`, `.github/workflows/cache-image.yml` |
 | The Dockerfile, six times | `containers/Dockerfile`, published as the base image |
 | Input URLs, paths, branches, outputs, entry points, batch sizes | `cache.toml`, read by both the shell and the Python |

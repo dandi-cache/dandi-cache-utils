@@ -46,10 +46,10 @@ jobs:
 
       - name: Check the pipeline script
         run: |
-          bash -n bin/update_pipeline.sh
+          bash -n src/dandi_cache_utils/pipeline/update_pipeline.sh
           sudo apt-get update || true
           sudo apt-get install -y shellcheck
-          shellcheck bin/update_pipeline.sh
+          shellcheck src/dandi_cache_utils/pipeline/update_pipeline.sh
 
       - name: Check the core imports without third-party packages
         # `update_pipeline.sh` reads `cache.toml` with the runner's bare `python3`. If anything in

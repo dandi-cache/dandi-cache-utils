@@ -7,8 +7,9 @@
 # one pinned digest:
 #
 #   - the Python library (`dandi_cache_utils`) that its `code/update.py` imports;
-#   - the orchestration script (`bin/update_pipeline.sh`) that CI extracts and runs on the runner;
-#   - the runner's own pinned requirements, so the orchestration environment is pinned with it.
+#   - the orchestration script that CI extracts and runs on the runner, which is part of that same
+#     package (`dandi_cache_utils.pipeline`) rather than a separate tree beside it;
+#   - the runner's own pinned requirements, which ship beside the script for the same reason.
 #
 # That last point is the reason the script is vendored here rather than checked out separately:
 # the image digest recorded in each run's provenance pins the orchestration and the runtime
@@ -50,8 +51,7 @@ ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 ENV DANDI_CACHE_UTILS_DIR=/opt/dandi-cache-utils
 COPY pyproject.toml README.md ${DANDI_CACHE_UTILS_DIR}/
 COPY src ${DANDI_CACHE_UTILS_DIR}/src
-COPY bin ${DANDI_CACHE_UTILS_DIR}/bin
-RUN chmod +x ${DANDI_CACHE_UTILS_DIR}/bin/*.sh
+RUN chmod +x ${DANDI_CACHE_UTILS_DIR}/src/dandi_cache_utils/pipeline/*.sh
 
 # `s3` and `archive` are cheap and needed by most caches; the heavy NWB stack is the `nwb` stage.
 RUN pip install "${DANDI_CACHE_UTILS_DIR}[s3,archive]"

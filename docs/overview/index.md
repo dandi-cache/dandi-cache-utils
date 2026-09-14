@@ -18,6 +18,34 @@ Gone from every cache: `code/update_pipeline.sh` (~200 lines), `code/compress.py
 update workflow, the ~60-line build workflow, `dataset_description.json`, and the boilerplate half
 of `code/update.py`.
 
+## What lives where
+
+Two repositories serve every cache, and the line between them is whether a file is *referenced* at
+run time or *copied once* at generation time.
+
+| | [`dandi-cache-utils`](https://github.com/dandi-cache/dandi-cache-utils) | [`cache-template`](https://github.com/dandi-cache/cache-template) |
+|---|---|---|
+| **Holds** | The library — including the orchestration script, which ships inside it as `dandi_cache_utils.pipeline` — the base container image, and the reusable workflows `cache-update.yml` and `cache-image.yml` | The skeleton of a cache: `cache.toml`, `code/update.py`, `containers/Dockerfile`, the calling workflows, the README, and the setup skills |
+| **Reaches a cache by** | Being referenced — `uses:` for the workflows, `FROM` for the image | Being copied, when the repository is generated from it |
+| **A change to it** | Takes effect on every cache's next run | Affects only caches generated afterwards |
+
+That is why the reusable workflows are here rather than in the template. A template's files are
+copied once and then diverge — which is the problem this library exists to end, and precisely what
+happened to the ~130-line update workflow each cache used to carry. A reusable workflow is resolved
+live from this repository on every run, so a fix reaches all seventeen caches at once without
+anyone touching them.
+
+They also belong next to what they run. `cache-update.yml` pulls the cache's image, extracts
+`/opt/dandi-cache-utils` from it, and runs the packaged `update_pipeline.sh` from there;
+`cache-image.yml`
+checks that the image it just built really was built `FROM` this base. Workflow, script and image
+are three parts of one orchestration, released together, and splitting them across repositories
+would mean a change to any one of them could silently disagree with the others.
+
+What the template holds is the *caller*: a cache's own `update.yml` is a schedule, a concurrency
+group, dispatch inputs and three lines delegating here. That is genuinely per-cache, so it is
+copied and then owned.
+
 ## The three branches
 
 Each cache is one repository with three branches, and that has not changed:
@@ -44,6 +72,12 @@ The image digest therefore pins the orchestration *and* the runtime environment 
 digest is what each run records in its provenance — so a recorded run can be reproduced from the
 digest alone. That was not true when the script lived on the code branch and the image held only
 the environment.
+
+The orchestration script is not a separate tree beside the package: it is part of it, at
+`dandi_cache_utils/pipeline/update_pipeline.sh`. It is data the package ships rather than an
+executable installed onto anyone's PATH, so every copy — a wheel, an editable checkout, the one
+inside the image — carries it at the same place. `dandi-cache pipeline --path` says where, and
+`dandi-cache pipeline` runs it.
 
 :::{note}
 `dandi_cache_utils.config` imports nothing outside the standard library, and a test enforces it.

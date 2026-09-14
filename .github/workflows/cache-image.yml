@@ -92,7 +92,7 @@ jobs:
         # here rather than in the cache's next scheduled update.
         run: |
           IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
-          if ! docker run --rm "${IMAGE}" test -f /opt/dandi-cache-utils/bin/update_pipeline.sh; then
+          if ! docker run --rm "${IMAGE}" test -f /opt/dandi-cache-utils/src/dandi_cache_utils/pipeline/update_pipeline.sh; then
             echo "ERROR: ${IMAGE} does not carry /opt/dandi-cache-utils." >&2
             echo "Build it FROM ghcr.io/dandi-cache/dandi-cache-utils:latest (or :nwb)." >&2
             exit 1

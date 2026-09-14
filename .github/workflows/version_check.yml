@@ -5,7 +5,7 @@ name: Version Check
 # hold its orchestration still, so a change that ships under a version already published would
 # silently change what an existing pin resolves to. This fails the pull request instead.
 #
-# Bump for a change to `src/`, `bin/` or `pyproject.toml` -- the tree that is vendored into the
+# Bump for a change to `src/` or `pyproject.toml` -- the tree that is vendored into the
 # image. A change that is purely CI, documentation or examples does not need one, which is why
 # those paths do not trigger this.
 
@@ -15,7 +15,6 @@ on:
       - main
     paths:
       - "src/**"
-      - "bin/**"
       - "pyproject.toml"
 
 permissions:

@@ -1,7 +1,7 @@
 # Changelog
 
 The version in `pyproject.toml` is the only place the version is written. It names the published
-image, so bump it in any pull request that touches `src/`, `bin/` or `pyproject.toml` -- the tree
+image, so bump it in any pull request that touches `src/` or `pyproject.toml` -- the tree
 vendored into that image -- and add an entry below. A change that is purely CI, documentation or
 examples needs neither.
 
@@ -14,7 +14,8 @@ examples needs neither.
   explicit failure policies, the standard command line, and the concrete DANDI operations
   (unsigned S3 client, tokenless asset resolution, remote NWB readers, and the structural walk the
   `valid-nwb-file-to-*` family shares).
-- Added `bin/update_pipeline.sh`, one orchestrator for every cache, driven by the cache's own
+- Added the orchestration script, one for every cache, shipped inside the package as
+  `dandi_cache_utils.pipeline` and driven by the cache's own
   `cache.toml` rather than by straight-line code per repository.
 - Added the reusable `cache-update.yml` and `cache-image.yml` workflows, which reduce a cache's own
   `update.yml` to a schedule plus three lines.

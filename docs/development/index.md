@@ -9,13 +9,13 @@ ordering, what a failure means, and whether testing mode can touch the real cach
 ```bash
 uv run --with ".[test]" pytest
 uv run --with ".[test]" python tests/check_core_imports.py
-shellcheck bin/update_pipeline.sh
+shellcheck src/dandi_cache_utils/pipeline/update_pipeline.sh
 python -m sphinx -b html -W docs docs/_build/html
 ```
 
 ## Two rules the tests enforce
 
-**The core imports nothing outside the standard library.** `bin/update_pipeline.sh` parses
+**The core imports nothing outside the standard library.** The pipeline script parses
 `cache.toml` with the CI runner's bare `python3`, before any environment exists, by running
 `config.py` directly. If anything in the core grew an import of boto3, h5py or click, the
 orchestration would break before a run even started. `tests/check_core_imports.py` fails on that.
@@ -32,7 +32,7 @@ module offers its own imports alongside its functions. The same check fails on a
 resolves from it — from the installed distribution's metadata, or, for the copy vendored into the
 image and imported straight from `src/`, by reading the `pyproject.toml` shipped beside it.
 
-Bump it in any pull request that changes `src/`, `bin/` or `pyproject.toml`: those are the paths
+Bump it in any pull request that changes `src/` or `pyproject.toml`: those are the paths
 that reach the published image, and a release publishes the version as its own image tag, which a
 cache may have pinned. A CI- or documentation-only change needs no bump. The `Version Check`
 workflow enforces this, and `CHANGELOG.md` records what changed.

@@ -1,6 +1,7 @@
 """The `dandi-cache` command, which the pipeline calls once it has an environment."""
 
 import json
+import pathlib
 
 import pytest
 from click.testing import CliRunner
@@ -70,3 +71,12 @@ def test_a_missing_config_is_rejected_by_the_command_line(runner):
     result = runner.invoke(_cli.dandi_cache_cli, ["config", "show", "no/such/cache.toml"])
 
     assert result.exit_code != 0
+
+
+def test_the_pipeline_script_ships_with_the_package(runner):
+    result = runner.invoke(_cli.dandi_cache_cli, ["pipeline", "--path"])
+
+    assert result.exit_code == 0
+    script = pathlib.Path(result.output.strip())
+    assert script.is_file()
+    assert script.read_text().startswith("#!/usr/bin/env bash")

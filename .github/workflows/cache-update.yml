@@ -13,7 +13,7 @@ name: Cache Update
 #         limit: ${{ inputs.limit }}
 #       secrets: inherit
 #
-# The orchestration itself is not in this file either: it is `bin/update_pipeline.sh`, vendored in
+# The orchestration itself is not in this file either: it is `src/dandi_cache_utils/pipeline/update_pipeline.sh`, vendored in
 # the cache's runtime image and extracted from it below, so the image digest pins the pipeline and
 # the runtime environment together.
 
@@ -145,7 +145,7 @@ jobs:
           CONTAINER=$(docker create "${IMAGE}")
           docker cp "${CONTAINER}:/opt/dandi-cache-utils" "${RUNNER_TEMP}/dandi-cache-utils"
           docker rm "${CONTAINER}" > /dev/null
-          chmod +x "${RUNNER_TEMP}/dandi-cache-utils/bin/"*.sh
+          chmod +x "${RUNNER_TEMP}/dandi-cache-utils/src/dandi_cache_utils/pipeline/"*.sh
           echo "directory=${RUNNER_TEMP}/dandi-cache-utils" >> "$GITHUB_OUTPUT"
 
       - name: Run the update with provenance
@@ -160,7 +160,7 @@ jobs:
           LIMIT: ${{ inputs.limit }}
           GITHUB_SHA: ${{ github.sha }}
           DANDI_CACHE_UTILS_DIR: ${{ steps.pipeline.outputs.directory }}
-        run: bash "${{ steps.pipeline.outputs.directory }}/bin/update_pipeline.sh"
+        run: bash "${{ steps.pipeline.outputs.directory }}/src/dandi_cache_utils/pipeline/update_pipeline.sh"
 
   NotifyOnFailure:
     runs-on: ubuntu-latest

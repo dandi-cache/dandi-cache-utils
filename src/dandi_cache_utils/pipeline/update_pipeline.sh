@@ -2,9 +2,10 @@
 #
 # The DANDI cache update pipeline: one orchestrator for every cache in the organization.
 #
-# This script is vendored inside the runtime container image at /opt/dandi-cache-utils/bin/ and
-# extracted from it at run time, so the image digest pins the orchestration and the runtime
-# environment together. There is no separate version to keep in sync.
+# The script is part of the `dandi_cache_utils` package, so it ships wherever the package does. It
+# is vendored inside the runtime container image and extracted from it at run time, which is what
+# pins the orchestration and the runtime environment to one digest; `dandi-cache pipeline` runs
+# this same file from an ordinary installation.
 #
 # Everything that used to differ between repositories -- the number of input subdatasets, the
 # output file names, the entry point, the batch size -- is read from the cache's own `cache.toml`
@@ -36,8 +37,8 @@
 #                `limit` in `cache.toml`.
 #   GITHUB_SHA   Recorded in the provenance message to link results to the code commit.
 #   RUNNER_TEMP  Scratch directory for the working clones (default: /tmp).
-#   DANDI_CACHE_UTILS_DIR  Where this script and its sources were extracted to (default: the
-#                directory containing this script's parent).
+#   DANDI_CACHE_UTILS_DIR  The installable source tree this script was extracted with (default:
+#                three levels above this script, which is where it sits inside the package).
 set -euo pipefail
 
 : "${REPO_URL:?REPO_URL must be set}"
@@ -51,8 +52,12 @@ GITHUB_SHA="${GITHUB_SHA:-unknown}"
 BOT_NAME="github-actions[bot]"
 BOT_EMAIL="github-actions[bot]@users.noreply.github.com"
 
+# This file lives at <tree>/src/dandi_cache_utils/pipeline/, so the package directory is its
+# parent and the installable tree is three levels up. DANDI_CACHE_UTILS_DIR overrides the latter,
+# which is how the extracted copy in CI names where it was unpacked to.
 SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-UTILS_DIR="${DANDI_CACHE_UTILS_DIR:-$(dirname "${SCRIPT_DIRECTORY}")}"
+PACKAGE_DIRECTORY="$(dirname "${SCRIPT_DIRECTORY}")"
+UTILS_DIR="${DANDI_CACHE_UTILS_DIR:-$(dirname "$(dirname "${PACKAGE_DIRECTORY}")")}"
 
 DS="${RUNNER_TEMP:-/tmp}/derivatives-dataset"
 DISTDIR="${RUNNER_TEMP:-/tmp}/dist-publish"
@@ -139,7 +144,7 @@ if [ ! -f "${CONFIG_FILE}" ]; then
   exit 1
 fi
 
-config_as_shell() { python3 "${UTILS_DIR}/src/dandi_cache_utils/config.py" "$@"; }
+config_as_shell() { python3 "${PACKAGE_DIRECTORY}/config.py" "$@"; }
 
 # Everything after the runner's environment is built goes through the installed command instead.
 dandi_cache() { "${RUNNER_VENV}/bin/dandi-cache" "$@"; }

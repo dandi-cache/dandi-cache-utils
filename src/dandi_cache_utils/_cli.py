@@ -4,7 +4,7 @@ These were a `code/compress.py` copied into every cache repository plus a handfu
 As subcommands they are one tool the orchestration can rely on being present in the image.
 
 The library itself never imports this module, so importing `dandi_cache_utils` still pulls in
-nothing outside the standard library -- which matters, because `bin/update_pipeline.sh` reads
+nothing outside the standard library -- which matters, because the pipeline script reads
 `cache.toml` on the runner before any environment exists. That bootstrap runs
 `config.py` directly rather than through this command; everything after it, once the runner's
 environment is built, comes through here.
@@ -12,12 +12,14 @@ environment is built, comes through here.
 
 import importlib.metadata
 import json
+import os
 import pathlib
 
 import rich_click
 
 from . import config as config_module
 from . import jsonl
+from . import pipeline as pipeline_module
 
 __all__ = ["dandi_cache_cli"]
 
@@ -84,11 +86,31 @@ def config_show_command(file: pathlib.Path | None) -> None:
 def config_shell_command(file: pathlib.Path | None, operation: str) -> None:
     """Print the configuration as bash assignments, for `eval`.
 
-    `bin/update_pipeline.sh` does not call this: it runs `config.py` directly, because it parses
+    The pipeline does not call this: it runs `config.py` directly, because it parses
     `cache.toml` before any environment exists. This is the same rendering, for looking at what
     the pipeline will see.
     """
     rich_click.echo(config_module.as_shell(_load(file), operation=operation))
+
+
+@dandi_cache_cli.command(
+    "pipeline",
+    context_settings={"ignore_unknown_options": True},
+)
+@rich_click.option("--path", "print_path", is_flag=True, help="Print where the script is instead of running it.")
+@rich_click.argument("arguments", nargs=-1, type=rich_click.UNPROCESSED)
+def pipeline_command(print_path: bool, arguments: tuple[str, ...]) -> None:
+    """Run the shared update pipeline, or say where it is.
+
+    The script is part of this package rather than something installed onto the PATH, so this is
+    how to reach it without knowing how the installation is laid out. CI extracts the vendored
+    copy from the container image and runs it directly; everything else can run it from here.
+    """
+    script = pipeline_module.script_path()
+    if print_path:
+        rich_click.echo(script)
+        return
+    os.execvp("bash", ["bash", str(script), *arguments])
 
 
 @dandi_cache_cli.command("dataset-description")

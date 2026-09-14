@@ -41,3 +41,12 @@ def test_every_declared_operation_has_a_script(example):
 @pytest.mark.parametrize("example", EXAMPLES, ids=lambda path: path.name)
 def test_every_example_compiles(example):
     assert compileall.compile_dir(str(example / "code"), quiet=1), f"{example.name} has a syntax error"
+
+
+def test_the_pipeline_and_its_requirements_are_part_of_the_package():
+    """They are data the package ships, not a tree beside it that an installation could miss."""
+    from dandi_cache_utils import pipeline
+
+    assert pipeline.script_path().is_file()
+    assert pipeline.runner_requirements_path().is_file()
+    assert pipeline.script_path().parent.name == "pipeline"

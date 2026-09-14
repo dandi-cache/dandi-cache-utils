@@ -15,7 +15,7 @@ authors = [{ name = "Cody Baker" }]
 
 # `rich-click` is for the `dandi-cache` command only; the library never imports it. Importing
 # `dandi_cache_utils` still pulls in nothing outside the standard library, which is what lets
-# `bin/update_pipeline.sh` read `cache.toml` with the runner's bare `python3` before any
+# the pipeline script read `cache.toml` with the runner's bare `python3` before any
 # environment exists. A test enforces that.
 dependencies = ["rich-click"]
 

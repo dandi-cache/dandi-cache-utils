@@ -16,14 +16,12 @@ on:
     paths:
       - "pyproject.toml"
       - "src/**"
-      - "bin/**"
       - "containers/**"
       - ".github/workflows/build_and_upload_docker_image.yml"
   pull_request:
     paths:
       - "pyproject.toml"
       - "src/**"
-      - "bin/**"
       - "containers/**"
       - ".github/workflows/build_and_upload_docker_image.yml"
   schedule:
@@ -109,7 +107,7 @@ jobs:
         # and it should not first be exercised after merge.
         run: |
           IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
-          docker run --rm "${IMAGE}" bash -n /opt/dandi-cache-utils/bin/update_pipeline.sh
+          docker run --rm "${IMAGE}" bash -n /opt/dandi-cache-utils/src/dandi_cache_utils/pipeline/update_pipeline.sh
           # The version is declared once, in `pyproject.toml`, and reaches the image by two routes:
           # the installed distribution's metadata, and -- for the vendored sources the runner
           # imports without installing anything -- the `pyproject.toml` shipped beside them. Both
@@ -124,7 +122,7 @@ jobs:
             echo "       and ${VENDORED} from the vendored sources." >&2
             exit 1
           fi
-          docker run --rm "${IMAGE}" test -f /opt/dandi-cache-utils/bin/runner-requirements.txt
+          docker run --rm "${IMAGE}" test -f /opt/dandi-cache-utils/src/dandi_cache_utils/pipeline/runner-requirements.txt
           # Exercise the exact path the pipeline takes on the runner: the *system* interpreter
           # (outside the image's virtual environment, so nothing is installed) importing the
           # vendored sources to parse a real cache.toml. This is what proves the core stayed

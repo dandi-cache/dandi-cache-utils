@@ -1,7 +1,7 @@
 """The declarative description of a cache, read from its `cache.toml`.
 
 This is the single source of truth that both halves of the pipeline read: the Python update
-logic imports `load_config`, and `bin/update_pipeline.sh` evaluates the output of
+logic imports `load_config`, and the pipeline script evaluates the output of
 `python3 config.py cache.toml` to learn the same facts. Everything a cache repository used to
 spell out twice -- once in `update_pipeline.sh` and once in `code/update.py` -- is declared here
 exactly once.
@@ -333,7 +333,7 @@ def describe(config: CacheConfig, /) -> str:
 
 
 def _main(argv: list[str] | None = None) -> int:
-    """The bootstrap entry point, run as a plain script by `bin/update_pipeline.sh`.
+    """The bootstrap entry point, run as a plain script by the pipeline.
 
     This is deliberately not part of the `dandi-cache` command: the pipeline renders the config
     before the runner has an environment, so this path must work with a bare `python3` and the
