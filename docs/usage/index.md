@@ -75,8 +75,24 @@ incremental and leave it unset.
 ### `[description]`
 
 Rendered to `dataset_description.json` on the published branches, so no cache carries that file.
-`title` defaults to the cache name and `license` to `CC-BY-4.0`; `authors`, `keywords` and
-`references_and_links` are passed through.
+
+| Key | Default | Becomes |
+|---|---|---|
+| `title` | the cache name | `Name` |
+| `authors` | empty | `Authors` |
+| `license` | `CC-BY-4.0` | `License` |
+| `bids_version` | `1.10.0` | `BIDSVersion` |
+| `keywords` | omitted | `Keywords` |
+| `references` | the cache's repository URL | `ReferencesAndLinks` |
+
+`DatasetType` is always `study`, because every cache is one.
+
+The pipeline writes the file onto the `derivatives` dataset at the start of every run and copies it
+to `dist`, so it cannot fall behind the declaration. To see what a cache will publish:
+
+```bash
+dandi-cache dataset-description cache.toml
+```
 
 ## `code/update.py`
 

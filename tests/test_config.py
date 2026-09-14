@@ -169,6 +169,37 @@ def test_shell_rendering_quotes_awkward_values(tmp_path):
 
 
 @pytest.mark.ai_generated
+def test_every_documented_description_key_is_read(tmp_path):
+    """The `[description]` keys the usage page lists are the ones the parser acts on.
+
+    A key that is documented but not read is worse than one that is missing: a cache sets it,
+    nothing complains, and the published metadata quietly carries the default instead.
+    """
+    file_path = tmp_path / config.CONFIG_FILE_NAME
+    file_path.write_text(
+        '[cache]\nname = "my-cache"\n\n[description]\n'
+        'title = "My Cache"\n'
+        'authors = ["Cody Baker"]\n'
+        'license = "CC0-1.0"\n'
+        'bids_version = "1.9.0"\n'
+        'keywords = ["DANDI"]\n'
+        'references = ["https://example.org/paper"]\n'
+    )
+
+    parsed = config.read_config(file_path)
+
+    assert parsed.description == {
+        "Name": "My Cache",
+        "BIDSVersion": "1.9.0",
+        "DatasetType": "study",
+        "License": "CC0-1.0",
+        "Authors": ["Cody Baker"],
+        "Keywords": ["DANDI"],
+        "ReferencesAndLinks": ["https://example.org/paper"],
+    }
+
+
+@pytest.mark.ai_generated
 def test_dataset_description_is_generated(tmp_path):
     parsed = config.read_config(
         write_config(
