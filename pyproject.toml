@@ -85,3 +85,6 @@ relative-imports-order = "closest-to-furthest"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "ai_generated: mark test as AI-generated",
+]

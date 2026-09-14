@@ -13,6 +13,7 @@ def write_config(directory: pathlib.Path, text: str) -> pathlib.Path:
     return file_path
 
 
+@pytest.mark.ai_generated
 def test_defaults_are_derived_from_the_cache_name(tmp_path):
     file_path = write_config(tmp_path, '[cache]\nname = "valid-nwb-file-to-number-of-groups"\n')
 
@@ -25,6 +26,7 @@ def test_defaults_are_derived_from_the_cache_name(tmp_path):
     assert parsed.directory == tmp_path.resolve()
 
 
+@pytest.mark.ai_generated
 def test_an_input_needs_only_its_name(tmp_path):
     file_path = write_config(
         tmp_path,
@@ -43,6 +45,7 @@ def test_an_input_needs_only_its_name(tmp_path):
     )
 
 
+@pytest.mark.ai_generated
 def test_several_inputs_are_kept_in_order(tmp_path):
     file_path = write_config(
         tmp_path,
@@ -74,6 +77,7 @@ def test_several_inputs_are_kept_in_order(tmp_path):
     assert parsed.input("content-id-to-valid-nwb-file").path == "sourcedata/content-id-to-valid-nwb-file"
 
 
+@pytest.mark.ai_generated
 def test_update_is_always_an_operation(tmp_path):
     file_path = write_config(tmp_path, '[cache]\nname = "my-cache"\n')
 
@@ -84,6 +88,7 @@ def test_update_is_always_an_operation(tmp_path):
     assert update.limit is None
 
 
+@pytest.mark.ai_generated
 def test_extra_operations_are_declared(tmp_path):
     file_path = write_config(
         tmp_path,
@@ -97,6 +102,7 @@ def test_extra_operations_are_declared(tmp_path):
     assert parsed.operation("refresh").label == "Refresh"
 
 
+@pytest.mark.ai_generated
 def test_an_unknown_operation_names_the_declared_ones(tmp_path):
     parsed = config.read_config(write_config(tmp_path, '[cache]\nname = "my-cache"\n'))
 
@@ -104,6 +110,7 @@ def test_an_unknown_operation_names_the_declared_ones(tmp_path):
         parsed.operation("rebuild")
 
 
+@pytest.mark.ai_generated
 @pytest.mark.parametrize(
     "text",
     [
@@ -122,6 +129,7 @@ def test_invalid_configurations_are_rejected(tmp_path, text):
         config.read_config(file_path)
 
 
+@pytest.mark.ai_generated
 def test_two_inputs_cannot_share_a_path(tmp_path):
     file_path = write_config(
         tmp_path,
@@ -133,6 +141,7 @@ def test_two_inputs_cannot_share_a_path(tmp_path):
         config.read_config(file_path)
 
 
+@pytest.mark.ai_generated
 def test_shell_rendering_round_trips_through_bash(tmp_path):
     parsed = config.read_config(
         write_config(
@@ -150,6 +159,7 @@ def test_shell_rendering_round_trips_through_bash(tmp_path):
     assert "OPERATION_SCRIPT=code/update.py" in rendered
 
 
+@pytest.mark.ai_generated
 def test_shell_rendering_quotes_awkward_values(tmp_path):
     parsed = config.read_config(
         write_config(tmp_path, '[cache]\nname = "my-cache"\n\n[[inputs]]\nname = "up"\npath = "source data/up"\n')
@@ -158,6 +168,7 @@ def test_shell_rendering_quotes_awkward_values(tmp_path):
     assert "INPUT_PATHS=('source data/up')" in config.as_shell(parsed)
 
 
+@pytest.mark.ai_generated
 def test_dataset_description_is_generated(tmp_path):
     parsed = config.read_config(
         write_config(
@@ -175,6 +186,7 @@ def test_dataset_description_is_generated(tmp_path):
     assert parsed.description["ReferencesAndLinks"] == ["https://github.com/dandi-cache/my-cache"]
 
 
+@pytest.mark.ai_generated
 def test_the_config_is_found_from_a_subdirectory(tmp_path):
     write_config(tmp_path, '[cache]\nname = "my-cache"\n')
     nested = tmp_path / "code" / "deeper"
@@ -183,6 +195,7 @@ def test_the_config_is_found_from_a_subdirectory(tmp_path):
     assert config.load_config(nested).name == "my-cache"
 
 
+@pytest.mark.ai_generated
 def test_the_environment_variable_wins(tmp_path, monkeypatch):
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()

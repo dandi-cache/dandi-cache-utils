@@ -17,6 +17,12 @@ The formatters and linters -- black, ruff, shellcheck and codespell -- are pre-c
 they run on every pull request through `pre-commit.ci` rather than in the test matrix. Only checks
 that need a particular interpreter belong there.
 
+[`AGENTS.md`](https://github.com/dandi-cache/dandi-cache-utils/blob/main/AGENTS.md) carries the
+organization's conventions for anyone, human or otherwise, working in this repository: the commit
+and changelog rules, the code style, and the test rules. Every test here is AI-generated and
+carries the `ai_generated` marker, so `pytest -m ai_generated` selects them and
+`pytest -m "not ai_generated"` would select any that a person writes later.
+
 ## Two rules the tests enforce
 
 **The core imports nothing outside the standard library.** The pipeline script parses

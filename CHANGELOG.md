@@ -29,6 +29,11 @@ examples needs neither.
 
 ### 🏠 Internal
 
+- Adopted the organization's `AGENTS.md` conventions. Every test carries the `ai_generated` marker,
+  the tests import only what `__init__.py` exposes publicly (`dandi_cache_cli` among it, bound
+  lazily so the library still imports without rich-click), and version resolution moved out of
+  `__init__.py` into `_version.py`.
+
 - `__version__` resolves from `pyproject.toml` -- from the installed distribution's metadata, or,
   for the copy vendored into the image and imported straight from `src/`, by reading the
   `pyproject.toml` shipped beside it. It is no longer a second copy of the version that can drift.

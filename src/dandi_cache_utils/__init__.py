@@ -58,8 +58,9 @@ from .runner import (
 #: `__all__`: `from dandi_cache_utils import *` would otherwise drag in h5py and boto3.
 _LAZY_SUBMODULES = ("api", "nwb", "s3")
 
-#: `pyproject.toml` is the only place the version is written; `__version__` resolves from it.
-_DISTRIBUTION_NAME = "dandi-cache-utils"
+#: Bound on first use for the same reason: `__version__` costs a metadata lookup the pipeline's
+#: hot path has no use for, and the command line needs rich-click, which the library must not.
+_LAZY_ATTRIBUTES = ("__version__", "dandi_cache_cli")
 
 __all__ = [
     "BatchResult",
@@ -73,7 +74,6 @@ __all__ = [
     "SKIP",
     "StagedErrorLog",
     "TESTING_LIMIT",
-    "__version__",
     "build_parser",
     "compress",
     "compress_derivatives",
@@ -99,38 +99,12 @@ __all__ = [
 ]
 
 
-def _read_version() -> str:
-    """Resolve the version from the single place it is declared.
-
-    An installed copy carries it in its distribution metadata. The copy vendored into the image is
-    also imported straight from `src/` by the runner's bare `python3`, which installs nothing, so
-    that one reads `[project] version` out of the `pyproject.toml` shipped beside the sources.
-    Either way the answer comes from `pyproject.toml`, which is the only place it is written.
-    """
-    import importlib.metadata
-
-    try:
-        return importlib.metadata.version(_DISTRIBUTION_NAME)
-    except importlib.metadata.PackageNotFoundError:
-        import pathlib
-        import tomllib
-
-        pyproject_path = pathlib.Path(__file__).resolve().parents[2] / "pyproject.toml"
-        if not pyproject_path.is_file():
-            raise
-        return tomllib.loads(pyproject_path.read_text(encoding="utf-8"))["project"]["version"]
-
-
 def __getattr__(name: str):
-    """Expose `dandi_cache_utils.nwb` / `.s3` / `.api`, and `__version__`, on first use.
+    """Bind `nwb` / `s3` / `api`, `dandi_cache_cli` and `__version__` on first use.
 
-    The submodules are imported on demand so that the core -- which the pipeline parses with the
-    CI runner's bare `python3` -- never pulls in boto3, h5py or pynwb just to read `cache.toml`.
-    `__version__` is resolved on demand for the same reason: reading it costs a metadata lookup
-    that the orchestration's hot path has no use for.
-
-    Imports are local here rather than at the top of the module precisely because the point is to
-    keep them out of the core import.
+    Everything here is imported on demand so that the core -- which the pipeline parses with the
+    CI runner's bare `python3` -- never pulls in boto3, h5py, pynwb or rich-click just to read
+    `cache.toml`. The imports are local for exactly that reason.
     """
     if name in _LAZY_SUBMODULES:
         import importlib
@@ -138,9 +112,16 @@ def __getattr__(name: str):
         module = importlib.import_module(f".dandi.{name}", __name__)
         globals()[name] = module
         return module
+    if name == "dandi_cache_cli":
+        from ._cli import dandi_cache_cli
+
+        globals()[name] = dandi_cache_cli
+        return dandi_cache_cli
     if name == "__version__":
-        version = _read_version()
-        globals()["__version__"] = version
+        from ._version import read_version
+
+        version = read_version()
+        globals()[name] = version
         return version
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -157,4 +138,4 @@ def __dir__() -> list[str]:
     Hiding them from completion does not unimport them: `import dandi_cache_utils.config` still
     works, and is how the pipeline reads `cache.toml`.
     """
-    return sorted([*__all__, *_LAZY_SUBMODULES])
+    return sorted({*__all__, *_LAZY_SUBMODULES, *_LAZY_ATTRIBUTES})

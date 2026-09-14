@@ -42,7 +42,7 @@ def _load(file: pathlib.Path | None, /) -> config_module.CacheConfig:
     return config_module.read_config(file) if file is not None else config_module.load_config()
 
 
-@rich_click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@rich_click.group(name="dandi-cache", context_settings={"help_option_names": ["-h", "--help"]})
 @rich_click.version_option(version=importlib.metadata.version("dandi-cache-utils"), prog_name="dandi-cache")
 def dandi_cache_cli() -> None:
     """Utilities shared by every DANDI cache."""

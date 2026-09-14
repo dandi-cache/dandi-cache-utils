@@ -3,45 +3,53 @@
 import json
 import pathlib
 
+import click.testing
 import pytest
-from click.testing import CliRunner
 
-from dandi_cache_utils import _cli
+import dandi_cache_utils
 
 EXAMPLE = "examples/content-id-to-valid-nwb-file/cache.toml"
 
 
-@pytest.fixture
-def runner():
-    return CliRunner()
+def invoke(*arguments: str) -> click.testing.Result:
+    """Run the command line the way a shell would, and hand back the result."""
+    return click.testing.CliRunner().invoke(dandi_cache_utils.dandi_cache_cli, list(arguments))
 
 
-def test_config_shell_renders_assignments_bash_can_evaluate(runner):
-    result = runner.invoke(_cli.dandi_cache_cli, ["config", "shell", EXAMPLE])
+@pytest.mark.ai_generated
+@pytest.mark.parametrize(
+    ("operation", "expected_script"),
+    [("update", "code/update.py"), ("refresh", "code/refresh.py")],
+)
+def test_config_shell_renders_the_operation_bash_will_run(operation, expected_script):
+    result = invoke("config", "shell", EXAMPLE, "--operation", operation)
+
+    assert result.exit_code == 0
+    assert f"OPERATION_SCRIPT={expected_script}" in result.output
+
+
+@pytest.mark.ai_generated
+def test_config_shell_renders_assignments_bash_can_evaluate():
+    result = invoke("config", "shell", EXAMPLE)
 
     assert result.exit_code == 0
     assert "CACHE_NAME=content-id-to-valid-nwb-file" in result.output
     assert "CACHE_OUTPUTS=(" in result.output
 
 
-def test_config_shell_selects_the_operation(runner):
-    result = runner.invoke(_cli.dandi_cache_cli, ["config", "shell", EXAMPLE, "--operation", "refresh"])
-
-    assert result.exit_code == 0
-    assert "OPERATION_SCRIPT=code/refresh.py" in result.output
-
-
-def test_config_show_is_for_a_human(runner):
-    result = runner.invoke(_cli.dandi_cache_cli, ["config", "show", EXAMPLE])
+@pytest.mark.ai_generated
+def test_config_show_is_for_a_human():
+    result = invoke("config", "show", EXAMPLE)
 
     assert result.exit_code == 0
     assert "content-id-to-valid-nwb-file" in result.output
 
 
-def test_dataset_description_writes_the_declared_metadata(runner, tmp_path):
+@pytest.mark.ai_generated
+def test_dataset_description_writes_the_declared_metadata(tmp_path):
     output = tmp_path / "nested" / "dataset_description.json"
 
-    result = runner.invoke(_cli.dandi_cache_cli, ["dataset-description", EXAMPLE, "--output", str(output)])
+    result = invoke("dataset-description", EXAMPLE, "--output", str(output))
 
     assert result.exit_code == 0
     description = json.loads(output.read_text())
@@ -49,34 +57,38 @@ def test_dataset_description_writes_the_declared_metadata(runner, tmp_path):
     assert description["DatasetType"] == "study"
 
 
-def test_compress_reports_when_there_is_nothing_to_do(runner, tmp_path):
-    result = runner.invoke(_cli.dandi_cache_cli, ["compress", "--base-directory", str(tmp_path)])
+@pytest.mark.ai_generated
+def test_compress_reports_when_there_is_nothing_to_do(tmp_path):
+    result = invoke("compress", "--base-directory", str(tmp_path))
 
     assert result.exit_code == 0
     assert "No derivatives/*.jsonl files found" in result.output
 
 
-def test_compress_writes_one_archive_per_derivative(runner, tmp_path):
+@pytest.mark.ai_generated
+def test_compress_writes_one_archive_per_derivative(tmp_path):
     derivatives = tmp_path / "derivatives"
     derivatives.mkdir()
     (derivatives / "example.jsonl").write_text('{"a": 1}\n')
 
-    result = runner.invoke(_cli.dandi_cache_cli, ["compress", "--base-directory", str(tmp_path)])
+    result = invoke("compress", "--base-directory", str(tmp_path))
 
     assert result.exit_code == 0
-    assert (derivatives / "example.jsonl.gz").is_file()
+    assert (derivatives / "example.jsonl.gz").is_file() is True
 
 
-def test_a_missing_config_is_rejected_by_the_command_line(runner):
-    result = runner.invoke(_cli.dandi_cache_cli, ["config", "show", "no/such/cache.toml"])
+@pytest.mark.ai_generated
+def test_a_missing_config_is_rejected_by_the_command_line():
+    result = invoke("config", "show", "no/such/cache.toml")
 
     assert result.exit_code != 0
 
 
-def test_the_pipeline_script_ships_with_the_package(runner):
-    result = runner.invoke(_cli.dandi_cache_cli, ["pipeline", "--path"])
+@pytest.mark.ai_generated
+def test_the_pipeline_script_ships_with_the_package():
+    result = invoke("pipeline", "--path")
 
     assert result.exit_code == 0
     script = pathlib.Path(result.output.strip())
-    assert script.is_file()
-    assert script.read_text().startswith("#!/usr/bin/env bash")
+    assert script.is_file() is True
+    assert script.read_text().startswith("#!/usr/bin/env bash") is True

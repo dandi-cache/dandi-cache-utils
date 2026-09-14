@@ -48,6 +48,10 @@ IMPLEMENTATION_MODULES = {"cli", "config", "dandi", "dataset", "jsonl", "logs", 
 #: The modules a cache reaches for by name, which are bound only on first use.
 ACCESSOR_MODULES = {"api", "nwb", "s3"}
 
+#: Bound on first use for the same reason: the command line needs rich-click, and reading the
+#: version costs a metadata lookup, neither of which the orchestration's first step can afford.
+LAZY_ATTRIBUTES = {"dandi_cache_cli"}
+
 SOURCE_DIRECTORY = pathlib.Path(__file__).resolve().parents[1] / "src" / "dandi_cache_utils"
 
 
@@ -75,7 +79,7 @@ def check_package_namespace() -> list[str]:
 
     failures = []
     offered = {name for name in dir(dandi_cache_utils) if not name.startswith("_")}
-    expected = set(dandi_cache_utils.__all__) - {"__version__"} | ACCESSOR_MODULES
+    expected = set(dandi_cache_utils.__all__) | ACCESSOR_MODULES | LAZY_ATTRIBUTES
 
     if leaked := sorted(offered & IMPLEMENTATION_MODULES):
         failures.append(f"completion on the package offers implementation modules: {leaked}")
@@ -84,13 +88,14 @@ def check_package_namespace() -> list[str]:
     if extra := sorted(offered - expected - IMPLEMENTATION_MODULES):
         failures.append(f"completion on the package offers unintended names: {extra}")
 
-    # An advertised name that does not resolve is worse than a hidden one. The accessors are
+    # An advertised name that does not resolve is worse than a hidden one. The lazy names are
     # excluded deliberately: resolving them would import the very packages checked for above.
-    for name in sorted(expected - ACCESSOR_MODULES):
+    lazy = ACCESSOR_MODULES | LAZY_ATTRIBUTES
+    for name in sorted(expected - lazy):
         if not hasattr(dandi_cache_utils, name):
             failures.append(f"`{name}` is advertised but does not resolve")
-    if eager := sorted(ACCESSOR_MODULES & {name for name in vars(dandi_cache_utils)}):
-        failures.append(f"accessor modules were imported eagerly: {eager}")
+    if eager := sorted(lazy & set(vars(dandi_cache_utils))):
+        failures.append(f"these must stay lazy but were imported eagerly: {eager}")
 
     try:
         dandi_cache_utils.definitely_not_a_real_name
