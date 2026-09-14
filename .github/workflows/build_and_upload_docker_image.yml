@@ -5,6 +5,21 @@ name: Build and Upload Base Containers
 # Two tags are published from one Dockerfile: `:latest` (the core library plus the S3 and DANDI API
 # dependencies) and `:nwb` (the same plus the remote NWB reading stack that the `valid-nwb-file-to-*`
 # family shares). A cache picks whichever one it needs in a two-line Dockerfile.
+#
+# Not the `build-and-publish-image` action, deliberately. That action builds a *cache's* image, and
+# the two differ in every part that matters:
+#
+#   - it publishes one image per repository; this publishes two from one Dockerfile, by target;
+#   - it tags `:latest` / `dev-<branch>` / the SHA; this adds the version from `pyproject.toml`,
+#     which is the tag a cache pins to hold its orchestration still;
+#   - its verification is "was this built FROM the base?" -- which is exactly what cannot be asked
+#     of the base. This checks the opposite: that the base carries the vendored pipeline, that both
+#     version-resolution routes agree with the tag, and that the system interpreter can parse a
+#     real `cache.toml` from the vendored sources with nothing installed.
+#
+# The action exists because seventeen repositories were maintaining one workflow between them.
+# There is exactly one base image build, so there is nothing here to de-duplicate -- and bending
+# the shared action to cover it would mean inputs that only its one non-cache caller ever sets.
 
 permissions:
   contents: read
