@@ -29,7 +29,8 @@ jobs:
       - name: Install
         run: |
           uv venv --python 3.13 .venv
-          uv pip install --python .venv/bin/python -r docs/requirements.txt
+          uv pip install --python .venv/bin/python -r docs/requirements.txt .
+          # Same two installs Read the Docs does, in the same order.
 
       - name: Build the documentation
         run: .venv/bin/python -m sphinx -b html -W docs docs/_build/html

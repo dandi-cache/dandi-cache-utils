@@ -8,3 +8,7 @@ dist/
 .venv/
 .DS_Store
 .ruff_cache/
+
+# Sphinx: the built site and the API stubs autosummary writes.
+docs/_build/
+docs/api/generated/

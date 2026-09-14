@@ -13,6 +13,11 @@ build:
 python:
   install:
     - requirements: docs/requirements.txt
+    # The API reference imports the library. Installing it is cheap: the package itself depends
+    # only on `rich-click`, and every module imports without the scientific stack, which is
+    # declared in extras the documentation does not need.
+    - method: pip
+      path: .
 
 sphinx:
   configuration: docs/conf.py

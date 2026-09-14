@@ -48,13 +48,13 @@ Pick the failure policy deliberately, since it is the one thing the shared loop 
 
 Whatever the repository does today is the answer; make it explicit.
 
-The three shapes are worked through in [`examples/`](../examples):
+The three shapes are worked through in [the examples](../examples/index.md):
 
 | Example | Shape |
 |---|---|
-| `valid-nwb-file-to-number-of-groups` | Incremental, heavy per item, skip on failure, one output |
-| `content-id-to-nwb-file` | A cheap filter with nothing to resume, so a full rebuild each run |
-| `content-id-to-valid-nwb-file` | Incremental, three parallel outputs, record on failure, plus a second `refresh` entry point |
+| [`valid-nwb-file-to-number-of-groups`](../examples/valid-nwb-file-to-number-of-groups.md) | Incremental, heavy per item, skip on failure, one output |
+| [`content-id-to-nwb-file`](../examples/content-id-to-nwb-file.md) | A cheap filter with nothing to resume, so a full rebuild each run |
+| [`content-id-to-valid-nwb-file`](../examples/content-id-to-valid-nwb-file.md) | Incremental, three parallel outputs, record on failure, plus a second `refresh` entry point |
 
 
 ## 3. Replace the container
@@ -63,7 +63,7 @@ The three shapes are worked through in [`examples/`](../examples):
 FROM ghcr.io/dandi-cache/dandi-cache-utils:latest
 LABEL org.opencontainers.image.source="https://github.com/dandi-cache/<cache-name>"
 LABEL org.opencontainers.image.description="The pinned runtime environment for the DANDI Cache <cache-name> update pipeline."
-RUN pip install <this cache's own dependencies>
+RUN pip install <dependencies used by this cache>
 ```
 
 Use `:nwb` instead of `:latest` if the cache streams remote NWB files, and drop the `pip install`

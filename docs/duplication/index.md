@@ -1,4 +1,22 @@
-# What is duplicated across the DANDI caches
+# What was duplicated
+
+The caches were generated from a common template and then diverged. The same fix had to be written
+repeatedly, in different ways, and reached a different subset of repositories each time:
+
+| Fix | template | qualifying-aind | content-id-to-nwb-file | content-id-to-usage-dandiset-path | content-id-to-valid-nwb-file | valid-nwb-file-to-number-of-groups |
+|---|---|---|---|---|---|---|
+| Retry a transient push rejection | yes | yes, rewritten | no | no | no | no |
+| Retry a transient `docker pull` | yes | no | no | no | no | yes, rewritten |
+| Pre-run dataset cleanliness check | yes | **missing** | yes, rewritten | yes, rewritten | yes, rewritten | yes |
+| Save the advanced input pointer with `-d .` | yes | no | yes | yes | yes | yes |
+| Keep each run's log on `derivatives` | yes | yes | no | no | yes | yes |
+
+Four repositories fixed "the input subdataset pointer is silently not saved" in four separate pull
+requests. Three fixed the cleanliness check that misfires on a clean dataset, in two different
+ways. The push retry exists in two incompatible implementations and is absent from three caches.
+None of that is per-cache behaviour; it is one pipeline maintained five times.
+
+The rest of this page is the full analysis behind that.
 
 An analysis of the six repositories available when this library was written — `cache-template`,
 `qualifying-aind-content-ids`, `content-id-to-nwb-file`, `content-id-to-usage-dandiset-path`,
