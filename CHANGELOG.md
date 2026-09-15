@@ -1,8 +1,5 @@
 # Changelog
 
-The version in `pyproject.toml` is the only place the version is written.
-It names the published image, so bump it in any pull request that touches `src/` or `pyproject.toml` -- the tree vendored into that image -- and add an entry below.
-
 ## Upcoming
 
 ### 🚀 Enhancement
