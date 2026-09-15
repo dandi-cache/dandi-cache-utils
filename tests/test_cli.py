@@ -100,3 +100,73 @@ def test_the_pipeline_script_ships_with_the_package():
     script = pathlib.Path(result.output.strip())
     assert script.is_file() is True
     assert script.read_text().startswith("#!/usr/bin/env bash") is True
+
+
+def _cache(tmp_path, /, *, title: str = "DANDI Cache: My Cache") -> pathlib.Path:
+    """A minimal cache directory, the shape `--check` runs against inside a cache image."""
+    config_file = tmp_path / "cache.toml"
+    config_file.write_text(f'[cache]\nname = "my-cache"\n\n[description]\ntitle = "{title}"\n')
+    return config_file
+
+
+@pytest.mark.ai_generated
+def test_the_declared_copy_records_no_generating_version():
+    """A version baked into a committed file would go stale on the library's next release."""
+    published = json.loads(invoke("dataset-description", EXAMPLE).output)
+    declared = json.loads(invoke("dataset-description", EXAMPLE, "--declared").output)
+
+    assert "Version" in published["GeneratedBy"][0]
+    assert "Version" not in declared["GeneratedBy"][0]
+    assert {key: value for key, value in published.items() if key != "GeneratedBy"} == {
+        key: value for key, value in declared.items() if key != "GeneratedBy"
+    }
+
+
+@pytest.mark.ai_generated
+def test_check_passes_on_a_copy_the_configuration_declares(tmp_path):
+    config_file = _cache(tmp_path)
+    invoke(
+        "dataset-description", str(config_file), "--declared", "--output", str(tmp_path / "dataset_description.json")
+    )
+
+    result = invoke("dataset-description", str(config_file), "--check")
+
+    assert result.exit_code == 0
+
+
+@pytest.mark.ai_generated
+def test_check_fails_on_a_copy_that_has_drifted_and_says_how(tmp_path):
+    """The whole point: a committed file and a `cache.toml` that disagree is what this catches."""
+    config_file = _cache(tmp_path)
+    invoke(
+        "dataset-description", str(config_file), "--declared", "--output", str(tmp_path / "dataset_description.json")
+    )
+    _cache(tmp_path, title="DANDI Cache: Renamed")
+
+    result = invoke("dataset-description", str(config_file), "--check")
+
+    assert result.exit_code == 1
+    assert '-    "Name": "DANDI Cache: My Cache"' in result.output
+    assert '+    "Name": "DANDI Cache: Renamed"' in result.output
+    assert "--declared --output dataset_description.json" in result.output
+
+
+@pytest.mark.ai_generated
+def test_check_passes_where_no_copy_is_committed(tmp_path):
+    """Adopting the file is what makes it checked, so a cache without one is not yet failing."""
+    result = invoke("dataset-description", str(_cache(tmp_path)), "--check")
+
+    assert result.exit_code == 0
+    assert "does not exist" in result.output
+
+
+@pytest.mark.ai_generated
+def test_check_rejects_a_published_copy_committed_by_mistake(tmp_path):
+    """The published rendering carries a version, so committing one is exactly the drift to catch."""
+    config_file = _cache(tmp_path)
+    invoke("dataset-description", str(config_file), "--output", str(tmp_path / "dataset_description.json"))
+
+    result = invoke("dataset-description", str(config_file), "--check")
+
+    assert result.exit_code == 1
+    assert '"Version"' in result.output

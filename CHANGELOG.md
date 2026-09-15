@@ -4,6 +4,8 @@
 
 ### 🚀 Enhancement
 
+- `dandi-cache dataset-description` gained `--declared`, the rendering a cache commits beside its `cache.toml`, and `--check`, which fails with a diff when that committed copy is not what the configuration declares.
+  A repository can now carry the description it publishes without it becoming a second source of truth ([#11](https://github.com/dandi-cache/dandi-cache-utils/pull/11)).
 - Every cache now declares BIDS `1.11.1`, the current release, rather than the version each repository happened to carry.
   A cache can still name its own, but the default moving is what keeps the family on one spec ([#10](https://github.com/dandi-cache/dandi-cache-utils/pull/10)).
 - The published `dataset_description.json` now carries what BIDS recommends and not only what it requires.

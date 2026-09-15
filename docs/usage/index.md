@@ -75,7 +75,7 @@ Rendered to `dataset_description.json` on the published branches, so no cache ca
 | Key | Default | Becomes |
 |---|---|---|
 | `title` | the cache name | `Name` |
-| `authors` | empty | `Authors` |
+| `authors` | omitted | `Authors` |
 | `license` | `CC-BY-4.0` | `License` |
 | `bids_version` | `1.11.1` | `BIDSVersion` |
 | `keywords` | omitted | `Keywords` |
@@ -96,6 +96,26 @@ To see what a cache will publish:
 ```bash
 dandi-cache dataset-description cache.toml
 ```
+
+### The copy a repository commits
+
+A cache also commits a `dataset_description.json` beside its `cache.toml`, so that what it publishes is readable without checking out a published branch.
+That copy is generated, never hand-edited:
+
+```bash
+dandi-cache dataset-description --declared --output dataset_description.json
+```
+
+`--declared` differs from the published rendering by one key: it records no `GeneratedBy` version.
+A version belongs to the run that produced a published copy, not to the repository, and a version baked into a committed file would go stale on this library's next release -- turning every cache red on a release rather than on a mistake.
+
+The build workflow holds the committed copy to the declaration it came from:
+
+```bash
+dandi-cache dataset-description --check
+```
+
+It fails with a unified diff when the two disagree, and passes when a cache commits no copy at all, since adopting the file is what makes it checked.
 
 ## `code/update.py`
 
