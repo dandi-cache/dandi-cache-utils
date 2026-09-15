@@ -1,0 +1,49 @@
+name: Version Check
+
+# The version in `pyproject.toml` is the only place the version is written, and it is what names
+# the published image (`ghcr.io/dandi-cache/dandi-cache-utils:<version>`). A cache pins that tag to
+# hold its orchestration still, so a change that ships under a version already published would
+# silently change what an existing pin resolves to. This fails the pull request instead.
+#
+# Bump for a change to `src/` or `pyproject.toml` -- the tree that is vendored into the
+# image. A change that is purely CI, documentation or examples does not need one, which is why
+# those paths do not trigger this.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "pyproject.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  VersionCheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check the version was bumped
+        run: |
+          read_version() {
+            python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('$1').read_text())['project']['version'])"
+          }
+          if ! git show "origin/${{ github.base_ref }}:pyproject.toml" > /tmp/base_pyproject.toml 2>/dev/null; then
+            echo "The base branch has no pyproject.toml yet, so there is no version to bump from."
+            exit 0
+          fi
+          PR_VERSION=$(read_version pyproject.toml)
+          BASE_VERSION=$(read_version /tmp/base_pyproject.toml)
+          echo "Base version: $BASE_VERSION"
+          echo "PR version:   $PR_VERSION"
+          if [ "$PR_VERSION" = "$BASE_VERSION" ]; then
+            echo "::error::Version has not been bumped. Please update the version in pyproject.toml."
+            exit 1
+          fi
+          echo "Version bumped from $BASE_VERSION to $PR_VERSION ✓"

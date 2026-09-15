@@ -1,0 +1,11 @@
+/* The comparison tables are wide and their cells are short; let them use the full page width
+   rather than wrapping every "yes, rewritten" onto three lines. */
+table.docutils {
+    width: 100%;
+    table-layout: auto;
+}
+
+table.docutils td,
+table.docutils th {
+    white-space: normal;
+}

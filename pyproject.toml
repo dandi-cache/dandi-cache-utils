@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dandi-cache-utils"
+version = "0.1.0"
+description = "The shared operations, orchestration, and CI used by every DANDI Cache."
+readme = "README.md"
+# The container runs 3.13, but the config module is also imported by the CI runner's system
+# `python3` before any environment exists, so the floor is what runners ship (tomllib: 3.11).
+requires-python = ">=3.11"
+license = { text = "CC-BY-4.0" }
+authors = [{ name = "Cody Baker" }]
+
+# `rich-click` is for the `dandi-cache` command only; the library never imports it. Importing
+# `dandi_cache_utils` still pulls in nothing outside the standard library, which is what lets
+# the pipeline script read `cache.toml` with the runner's bare `python3` before any
+# environment exists. A test enforces that.
+dependencies = ["rich-click"]
+
+[project.optional-dependencies]
+# Fetching inputs straight from the public DANDI S3 bucket (the first-in-chain caches).
+s3 = ["boto3"]
+# Resolving assets through the DANDI API.
+archive = ["dandi"]
+# Streaming remote NWB files (HDF5 and Zarr) and walking their internal structure.
+# `zarr<3`: the hierarchy walk uses `group.groups()` / `group.arrays()`, which zarr 3 reworked.
+nwb = ["h5py", "hdmf-zarr", "nwbinspector", "pynwb", "remfile", "s3fs", "zarr<3"]
+# Everything, which is what the published `nwb` image tag carries.
+all = ["dandi-cache-utils[s3,archive,nwb]"]
+test = ["pytest"]
+
+[project.scripts]
+dandi-cache = "dandi_cache_utils._cli:dandi_cache_cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dandi_cache_utils"]
+
+[tool.black]
+line-length = 120
+target-version = ['py313']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  \.toml
+  |\.yml
+  |\.txt
+  |\.sh
+  |\.git
+  |\.ini
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+exclude = [
+  "*/__init__.py",
+]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["F", "E", "I"]
+ignore = [
+    "PTH123",
+    "D203",
+    "D212",
+    "T201",
+    "FIX002",
+    "TD003",
+    "TD002",
+    "S101",
+    "ICN001",
+    "INP001",
+]
+fixable = ["ALL"]
+
+[tool.ruff.lint.isort]
+relative-imports-order = "closest-to-furthest"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "ai_generated: mark test as AI-generated",
+]

@@ -1,0 +1,51 @@
+name: Test
+
+# The whole organization's update logic runs on this library, so a regression here breaks every
+# cache at once. That is the trade for de-duplicating it, and these tests are the other half of it.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the declared floor; 3.12 is what the runner's system `python3` is, and
+        # `update_pipeline.sh` parses `cache.toml` with that before any environment exists;
+        # 3.13 is what the container runs.
+        python-version: [ "3.11", "3.12", "3.13" ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install
+        # A virtual environment rather than `--system`: the runner ships one system interpreter, so
+        # `--system` can only ever test that one version. `uv venv --python` fetches whichever the
+        # matrix asks for.
+        run: |
+          uv venv --python ${{ matrix.python-version }} .venv
+          uv pip install --python .venv/bin/python ".[test]"
+
+      - name: Run the tests
+        run: .venv/bin/pytest -q
+
+      - name: Check the core imports without third-party packages
+        # The pipeline reads `cache.toml` with the runner's bare `python3`. If anything in the core
+        # grows an import of boto3, h5py or click, the orchestration breaks before a run starts.
+        # Not a lint -- it observes a clean interpreter's `sys.modules`, so it needs the matrix.
+        run: .venv/bin/python tests/check_core_imports.py

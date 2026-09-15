@@ -1,0 +1,12 @@
+[cache]
+name = "valid-nwb-file-to-number-of-groups"
+
+[[inputs]]
+name = "content-id-to-valid-nwb-file"
+
+# Streaming and walking each file is heavy, so a run advances the backlog by a bounded batch.
+[operations.update]
+limit = 500
+
+[description]
+authors = ["Cody Baker"]

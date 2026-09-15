@@ -1,0 +1,9 @@
+# The CI runner's own environment for `update_pipeline.sh`: DataLad and the container extension,
+# which drive the provenance-recorded run. These are deliberately NOT dependencies of a cache's
+# processing environment -- datalad never runs inside the container, and carrying it there only
+# made every cache image larger and every `envs/pyproject.toml` longer.
+#
+# This file is vendored into the runtime image beside the pipeline script and extracted with it, so
+# the image digest pins the orchestration environment along with the processing environment.
+datalad
+datalad-container

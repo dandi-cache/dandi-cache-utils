@@ -1,0 +1,187 @@
+name: Build and Upload Base Containers
+
+# Builds this repository's own base images, which every cache image is built `FROM`.
+#
+# Two tags are published from one Dockerfile: `:latest` (the core library plus the S3 and DANDI API
+# dependencies) and `:nwb` (the same plus the remote NWB reading stack that the `valid-nwb-file-to-*`
+# family shares). A cache picks whichever one it needs in a two-line Dockerfile.
+#
+# Not the `build-and-publish-image` action, deliberately. That action builds a *cache's* image, and
+# the two differ in every part that matters:
+#
+#   - it publishes one image per repository; this publishes two from one Dockerfile, by target;
+#   - it tags `:latest` / `dev-<branch>` / the SHA; this adds the version from `pyproject.toml`,
+#     which is the tag a cache pins to hold its orchestration still;
+#   - its verification is "was this built FROM the base?" -- which is exactly what cannot be asked
+#     of the base. This checks the opposite: that the base carries the vendored pipeline, that both
+#     version-resolution routes agree with the tag, and that the system interpreter can parse a
+#     real `cache.toml` from the vendored sources with nothing installed.
+#
+# The action exists because seventeen repositories were maintaining one workflow between them.
+# There is exactly one base image build, so there is nothing here to de-duplicate -- and bending
+# the shared action to cover it would mean inputs that only its one non-cache caller ever sets.
+
+permissions:
+  contents: read
+  packages: read
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "pyproject.toml"
+      - "src/**"
+      - "containers/**"
+      - ".github/workflows/build_and_upload_docker_image.yml"
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "src/**"
+      - "containers/**"
+      - ".github/workflows/build_and_upload_docker_image.yml"
+  schedule:
+    # Monthly: nothing is version-pinned, so the rebuild picks up newer releases of the NWB stack
+    # and the DANDI client on a predictable cadence rather than only when someone edits a file.
+    - cron: "0 5 1 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  BuildAndPush:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: core
+            suffix: latest
+          - target: nwb
+            suffix: nwb
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Work out the tags for this ref
+        id: tags
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/dandi-cache-utils
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          # The version comes from the tree being built, which is the only place it is written.
+          # A cache that wants its orchestration held still pins this tag rather than `:latest`.
+          VERSION=$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          # The core image's version tag is the bare version; a variant carries its own suffix.
+          VERSION_SUFFIX=""
+          if [ "${SUFFIX}" != "latest" ]; then
+            VERSION_SUFFIX="-${SUFFIX}"
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "list=${IMAGE}:pr-${{ github.event.number }}-${SUFFIX}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref_name }}" = "${{ github.event.repository.default_branch }}" ]; then
+            echo "list=${IMAGE}:${SUFFIX},${IMAGE}:${VERSION}${VERSION_SUFFIX},${IMAGE}:${{ github.sha }}-${SUFFIX}" >> "$GITHUB_OUTPUT"
+          else
+            BRANCH=$(printf '%s' "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
+            echo "list=${IMAGE}:dev-${BRANCH}-${SUFFIX}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets._GITHUB_API_KEY }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: containers/Dockerfile
+          target: ${{ matrix.target }}
+          push: ${{ github.event_name != 'pull_request' }}
+          # A pull request does not push, so load the result into the local daemon instead; the
+          # verification below needs the image either way.
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ steps.tags.outputs.list }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Check the vendored pipeline survived the build
+        # The image is how the orchestration is distributed, so a build that silently lost the
+        # script or the sources would break every cache's next update rather than failing here.
+        # This runs on pull requests too: the vendoring is the mechanism the whole design rests on,
+        # and it should not first be exercised after merge.
+        run: |
+          IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
+          docker run --rm "${IMAGE}" bash -n /opt/dandi-cache-utils/src/dandi_cache_utils/pipeline/update_pipeline.sh
+          # The version is declared once, in `pyproject.toml`, and reaches the image by two routes:
+          # the installed distribution's metadata, and -- for the vendored sources, which are
+          # imported from `src/` without being installed -- the `pyproject.toml` shipped beside
+          # them. Both must agree, and with the tag this image is about to be published under.
+          VERSION=$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          INSTALLED=$(docker run --rm "${IMAGE}" python -c \
+            'import dandi_cache_utils; print(dandi_cache_utils.__version__)')
+          # The second route, read the way nothing-is-installed reads it: the system interpreter
+          # running the vendored `_version.py` on its own, which falls back to the `pyproject.toml`
+          # shipped beside the sources because there is no distribution metadata to find.
+          VENDORED=$(docker run --rm "${IMAGE}" /usr/bin/python3 -c \
+            'import runpy; print(runpy.run_path("/opt/dandi-cache-utils/src/dandi_cache_utils/_version.py")["__version__"])')
+          if [ "${INSTALLED}" != "${VERSION}" ] || [ "${VENDORED}" != "${VERSION}" ]; then
+            echo "ERROR: the tree declares ${VERSION}, but the image reports ${INSTALLED} installed" >&2
+            echo "       and ${VENDORED} from the vendored sources." >&2
+            exit 1
+          fi
+          docker run --rm "${IMAGE}" test -f /opt/dandi-cache-utils/src/dandi_cache_utils/pipeline/runner-requirements.txt
+          # Exercise the exact path the pipeline takes on the runner: the *system* interpreter
+          # (outside the image's virtual environment, so nothing is installed) running the
+          # vendored `_config.py` as a script to parse a real cache.toml. This is what proves the
+          # bootstrap stayed standard-library only in a shipped image, not just in the test matrix.
+          docker run --rm -v "$PWD":/repo:ro "${IMAGE}" \
+            /usr/bin/python3 /opt/dandi-cache-utils/src/dandi_cache_utils/_config.py \
+            /repo/docs/examples/valid-nwb-file-to-number-of-groups/cache.toml
+          # And the command itself, which is what the pipeline uses once the runner has an
+          # environment: it needs the package installed, so this exercises the other half.
+          docker run --rm -v "$PWD":/repo:ro "${IMAGE}" \
+            dandi-cache config show /repo/docs/examples/valid-nwb-file-to-number-of-groups/cache.toml
+
+      - name: Run the test suite against the library as installed in the image
+        # The `Test` workflow proves the *sources* work on three interpreters. This proves the
+        # artifact does: the image is what every cache actually runs, and the tests here import the
+        # installed distribution rather than `src/`, because the checkout is mounted at /repo and
+        # the package is not under it.
+        #
+        # It is worth the minute in the `nwb` image especially. On the runner,
+        # `check_core_imports.py` passes partly by luck -- boto3, h5py and pynwb are not installed
+        # there at all, so the core could hardly import them. In this image they are installed, so
+        # the check finally means what it says: the core does not reach for them when it could.
+        run: |
+          IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
+          # The mount is read-only, so bytecode goes to a writable prefix and pytest keeps no cache.
+          docker run --rm -v "$PWD":/repo:ro -w /repo -e PYTHONPYCACHEPREFIX=/tmp/pycache "${IMAGE}" \
+            bash -c 'pip install --quiet pytest && python -m pytest tests -q -p no:cacheprovider && python tests/check_core_imports.py'
+
+  NotifyOnFailure:
+    runs-on: ubuntu-latest
+    needs: [ BuildAndPush ]
+    if: ${{ always() && failure() }}
+    permissions: {}
+    steps:
+      - uses: dawidd6/action-send-mail@v18
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "CI Failure: DANDI Cache: dandi-cache-utils base container build"
+          to: cody.c.baker.phd@gmail.com  # Add more with comma separation (no spaces)
+          from: DANDI Cache <dandi-cache@users.noreply.github.com>
+          body: "Please check the latest base container build: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
