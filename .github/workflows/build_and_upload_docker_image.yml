@@ -165,9 +165,12 @@ jobs:
         # the check finally means what it says: the core does not reach for them when it could.
         run: |
           IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
+          # `pytest` and `bidsschematools` are the `test` extra, named here rather than installed
+          # from the project: the mount is read-only, and installing the project again would
+          # replace the very copy this step exists to test.
           # The mount is read-only, so bytecode goes to a writable prefix and pytest keeps no cache.
           docker run --rm -v "$PWD":/repo:ro -w /repo -e PYTHONPYCACHEPREFIX=/tmp/pycache "${IMAGE}" \
-            bash -c 'pip install --quiet pytest && python -m pytest tests -q -p no:cacheprovider && python tests/check_core_imports.py'
+            bash -c 'pip install --quiet pytest bidsschematools && python -m pytest tests -q -p no:cacheprovider && python tests/check_core_imports.py'
 
   RebuildCacheImages:
     # Every cache image is built `FROM` the base this workflow just published, and `FROM` resolves

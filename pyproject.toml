@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dandi-cache-utils"
-version = "0.1.2"
+version = "0.1.3"
 description = "The shared operations, orchestration, and CI used by every DANDI Cache."
 readme = "README.md"
 # The container runs 3.13, but the config module is also imported by the CI runner's system
@@ -29,7 +29,9 @@ archive = ["dandi"]
 nwb = ["h5py", "hdmf-zarr", "nwbinspector", "pynwb", "remfile", "s3fs", "zarr<3"]
 # Everything, which is what the published `nwb` image tag carries.
 all = ["dandi-cache-utils[s3,archive,nwb]"]
-test = ["pytest"]
+# `bidsschematools` is the BIDS maintainers' machine-readable specification, which the published
+# `dataset_description.json` is validated against rather than eyeballed.
+test = ["bidsschematools", "pytest"]
 
 [project.scripts]
 dandi-cache = "dandi_cache_utils._cli:dandi_cache_cli"

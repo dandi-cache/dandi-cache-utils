@@ -168,27 +168,57 @@ def _parse_operations(raw: dict, /, *, cache_name: str) -> dict[str, Operation]:
 DEFAULT_BIDS_VERSION = "1.10.0"
 DEFAULT_LICENSE = "CC-BY-4.0"
 
+#: This library, named as the process that generates every cache, for BIDS `GeneratedBy`.
+LIBRARY_NAME = "dandi-cache-utils"
+LIBRARY_URL = f"https://github.com/{ORGANIZATION}/{LIBRARY_NAME}"
 
-def _parse_description(raw: dict, /, *, name: str) -> dict:
+
+def _parse_description(raw: dict, /, *, name: str, inputs: tuple) -> dict:
     """Build the BIDS `dataset_description.json` contents from the `[description]` table.
 
     Generating it from `cache.toml` is what lets a cache repository drop the hand-maintained file
     that only ever differed from its neighbours by one `Name` field -- and it removes a whole class
     of drift, such as one cache quietly declaring a different BIDS version and no license.
+
+    `Name` and `BIDSVersion` are all BIDS requires. The rest is what it recommends, and most of it
+    is already declared elsewhere in this file: a cache's upstream caches are its `SourceDatasets`,
+    so the one place that lists them fills in both.
     """
     description = {
         "Name": raw.get("title", name),
         "BIDSVersion": raw.get("bids_version", DEFAULT_BIDS_VERSION),
         "DatasetType": "study",
         "License": raw.get("license", DEFAULT_LICENSE),
-        "Authors": list(raw.get("authors", [])),
     }
+    # Optional in BIDS, and an empty list would assert there are none rather than leave it
+    # undeclared, so a cache that names no authors publishes no `Authors` key.
+    if raw.get("authors"):
+        description["Authors"] = list(raw["authors"])
     if raw.get("keywords"):
         description["Keywords"] = list(raw["keywords"])
     description["ReferencesAndLinks"] = list(
         raw.get("references", [f"https://github.com/{ORGANIZATION}/{name}"]),
     )
+    if inputs:
+        description["SourceDatasets"] = [{"URL": input_cache.url} for input_cache in inputs]
     return description
+
+
+def dataset_description(config: "CacheConfig", /, *, version: str | None = None) -> dict:
+    """The BIDS document to publish: what the cache declares, plus how this copy was generated.
+
+    `GeneratedBy` describes the process that produced the dataset in hand rather than anything the
+    cache declares about itself, so it is added here, by whoever knows which version of the library
+    is doing the generating. Without a `version` the entry is still valid -- BIDS requires only
+    `Name` of a `GeneratedBy` entry -- and simply does not claim one.
+    """
+    generated_by = {"Name": LIBRARY_NAME}
+    if version is not None:
+        generated_by["Version"] = version
+    generated_by["CodeURL"] = LIBRARY_URL
+    generated_by["Container"] = {"ContainerType": "docker", "ContainerTag": config.image}
+
+    return {**config.description, "GeneratedBy": [generated_by]}
 
 
 def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> CacheConfig:
@@ -221,7 +251,11 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
         outputs=outputs,
         inputs=inputs,
         operations=_parse_operations(_require_mapping(raw.get("operations", {}), where="operations"), cache_name=name),
-        description=_parse_description(_require_mapping(raw.get("description", {}), where="description"), name=name),
+        description=_parse_description(
+            _require_mapping(raw.get("description", {}), where="description"),
+            name=name,
+            inputs=inputs,
+        ),
         directory=directory,
     )
 
