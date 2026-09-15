@@ -1,7 +1,8 @@
 # Usage
 
 A cache declares itself in `cache.toml`, writes its operation in `code/update.py`, and delegates everything else.
-This page is the reference for those pieces; the [worked examples](../examples/index.md) show them in full.
+This page is the reference for those pieces.
+[A worked example](../examples/index.md) shows them in full.
 
 ## `cache.toml`
 
@@ -135,7 +136,8 @@ Both are correct for different caches and choosing wrongly is a real bug, so the
 
 ### Rebuilding instead of resuming
 
-A cache that is a pure filter or reshaping of its input, with no per-item work worth resuming, uses {func}`~dandi_cache_utils.runner.run_full_rebuild` instead — see [`content-id-to-nwb-file`](../examples/content-id-to-nwb-file/index.md).
+A cache that is a pure filter or reshaping of its input, with no per-item work worth resuming, uses {func}`~dandi_cache_utils.runner.run_full_rebuild` instead.
+It takes the same `dataset`, builds the whole mapping in one pass, and has no frontier, limit or failure policy to choose.
 
 ## The workflows
 

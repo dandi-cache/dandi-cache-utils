@@ -8,7 +8,7 @@ import pytest
 
 import dandi_cache_utils
 
-EXAMPLE = "docs/examples/content-id-to-valid-nwb-file/cache.toml"
+EXAMPLE = "docs/examples/valid-nwb-file-to-number-of-groups/cache.toml"
 
 
 def invoke(*arguments: str) -> click.testing.Result:
@@ -17,15 +17,23 @@ def invoke(*arguments: str) -> click.testing.Result:
 
 
 @pytest.mark.ai_generated
-@pytest.mark.parametrize(
-    ("operation", "expected_script"),
-    [("update", "code/update.py"), ("refresh", "code/refresh.py")],
-)
-def test_config_shell_renders_the_operation_bash_will_run(operation, expected_script):
-    result = invoke("config", "shell", EXAMPLE, "--operation", operation)
+def test_config_shell_renders_the_operation_bash_will_run():
+    result = invoke("config", "shell", EXAMPLE, "--operation", "update")
 
     assert result.exit_code == 0
-    assert f"OPERATION_SCRIPT={expected_script}" in result.output
+    assert "OPERATION_SCRIPT=code/update.py" in result.output
+
+
+@pytest.mark.ai_generated
+def test_config_shell_renders_a_second_entry_point(tmp_path):
+    """A cache may declare more than `update`, and the pipeline runs whichever one it is given."""
+    config_file = tmp_path / "cache.toml"
+    config_file.write_text('[cache]\nname = "my-cache"\n\n[operations.refresh]\n')
+
+    result = invoke("config", "shell", str(config_file), "--operation", "refresh")
+
+    assert result.exit_code == 0
+    assert "OPERATION_SCRIPT=code/refresh.py" in result.output
 
 
 @pytest.mark.ai_generated
@@ -33,7 +41,7 @@ def test_config_shell_renders_assignments_bash_can_evaluate():
     result = invoke("config", "shell", EXAMPLE)
 
     assert result.exit_code == 0
-    assert "CACHE_NAME=content-id-to-valid-nwb-file" in result.output
+    assert "CACHE_NAME=valid-nwb-file-to-number-of-groups" in result.output
     assert "CACHE_OUTPUTS=(" in result.output
 
 
@@ -42,7 +50,7 @@ def test_config_show_is_for_a_human():
     result = invoke("config", "show", EXAMPLE)
 
     assert result.exit_code == 0
-    assert "content-id-to-valid-nwb-file" in result.output
+    assert "valid-nwb-file-to-number-of-groups" in result.output
 
 
 @pytest.mark.ai_generated
@@ -53,7 +61,7 @@ def test_dataset_description_writes_the_declared_metadata(tmp_path):
 
     assert result.exit_code == 0
     description = json.loads(output.read_text())
-    assert description["Name"] == "content-id-to-valid-nwb-file"
+    assert description["Name"] == "valid-nwb-file-to-number-of-groups"
     assert description["DatasetType"] == "study"
 
 

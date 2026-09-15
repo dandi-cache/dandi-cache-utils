@@ -47,8 +47,8 @@ The pages are built with Sphinx and published by Read the Docs from `docs/.readt
 `fail_on_warning` is on and Read the Docs builds every pull request, so a broken cross-reference fails there rather than after merge.
 Build it the same way locally with the command above before pushing.
 
-Each worked example is a real cache's files with a page beside them, under `docs/examples/<name>/`.
-The page includes the files with `literalinclude` rather than copying them, so it cannot drift from the code it shows, and the test suite parses every `cache.toml` and compiles every `code/` directory there.
+The worked example is a real cache's own files, under `docs/examples/<name>/`.
+The page includes them with `literalinclude` rather than copying them, so it cannot drift from the code it shows, and the test suite parses every `cache.toml` and compiles every `code/` directory there.
 
 ## Releasing
 

@@ -1,8 +1,8 @@
 """The worked conversions are checked, not just written.
 
-`docs/examples/` holds real caches rewritten on this library. They are the documentation of what a cache
-repository becomes, so an API change that would break them should fail here rather than in a cache
-repository's next scheduled run.
+`docs/examples/` holds a real cache rewritten on this library.
+It is the documentation of what a cache repository becomes, so an API change that would break it
+should fail here rather than in a cache repository's next scheduled run.
 """
 
 import compileall

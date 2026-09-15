@@ -51,6 +51,6 @@ def main():
 | Starting a new cache | [`cache-template`](https://github.com/dandi-cache/cache-template) and its `setup-cache` skill |
 | Moving an existing cache onto this | [Migrating an existing cache](https://dandi-cache-utils.readthedocs.io/en/latest/migration/) |
 | What goes in `cache.toml` and `update.py` | [Usage](https://dandi-cache-utils.readthedocs.io/en/latest/usage/) |
-| Three real caches, rewritten | [Worked examples](https://dandi-cache-utils.readthedocs.io/en/latest/examples/) |
+| A real cache, rewritten | [A worked example](https://dandi-cache-utils.readthedocs.io/en/latest/examples/) |
 | Why this exists | [What was duplicated](https://dandi-cache-utils.readthedocs.io/en/latest/duplication/) |
 | Working on the library itself | [Development](https://dandi-cache-utils.readthedocs.io/en/latest/development/) |

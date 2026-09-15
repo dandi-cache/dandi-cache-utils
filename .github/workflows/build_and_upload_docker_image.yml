@@ -144,11 +144,11 @@ jobs:
           # standard-library only in a shipped image, not just in the test matrix.
           docker run --rm -v "$PWD":/repo:ro "${IMAGE}" \
             /usr/bin/python3 /opt/dandi-cache-utils/src/dandi_cache_utils/config.py \
-            /repo/docs/examples/content-id-to-valid-nwb-file/cache.toml
+            /repo/docs/examples/valid-nwb-file-to-number-of-groups/cache.toml
           # And the command itself, which is what the pipeline uses once the runner has an
           # environment: it needs the package installed, so this exercises the other half.
           docker run --rm -v "$PWD":/repo:ro "${IMAGE}" \
-            dandi-cache config show /repo/docs/examples/content-id-to-valid-nwb-file/cache.toml
+            dandi-cache config show /repo/docs/examples/valid-nwb-file-to-number-of-groups/cache.toml
 
       - name: Run the test suite against the library as installed in the image
         # The `Test` workflow proves the *sources* work on three interpreters. This proves the

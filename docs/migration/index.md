@@ -40,13 +40,7 @@ Pick the failure policy deliberately, since it is the one thing the shared loop 
 
 Whatever the repository does today is the answer; make it explicit.
 
-The three shapes are worked through in [the examples](../examples/index.md):
-
-| Example | Shape |
-|---|---|
-| [`valid-nwb-file-to-number-of-groups`](../examples/valid-nwb-file-to-number-of-groups/index.md) | Incremental, heavy per item, skip on failure, one output |
-| [`content-id-to-nwb-file`](../examples/content-id-to-nwb-file/index.md) | A cheap filter with nothing to resume, so a full rebuild each run |
-| [`content-id-to-valid-nwb-file`](../examples/content-id-to-valid-nwb-file/index.md) | Incremental, three parallel outputs, record on failure, plus a second `refresh` entry point |
+[The worked example](../examples/index.md) is a real cache converted this way, and the [usage reference](../usage/index.md) covers the parts it does not use: `run_full_rebuild` for a cache with nothing to resume, several `cache.outputs` for one that writes more than one file, and a second `[operations.<name>]` table for a second entry point.
 
 
 ## 3. Replace the container

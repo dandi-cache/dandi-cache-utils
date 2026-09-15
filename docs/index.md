@@ -14,7 +14,7 @@ It is vendored through GHCR container images: each cache's runtime image is buil
   [Usage](usage/index.md) is the reference for what you are filling in.
 - **Moving an existing cache onto this?** [Migrating an existing cache](migration/index.md), one repository at a time.
 - **Wondering why this exists?** [What was duplicated](duplication/index.md) is the analysis of the six repositories that prompted it.
-- **Writing an operation?** The [worked examples](examples/index.md) cover the three shapes, and the [API reference](api/index.rst) has the rest.
+- **Writing an operation?** [A worked example](examples/index.md) is a real cache converted end to end, and the [API reference](api/index.rst) has the rest.
 
 ```{toctree}
 :maxdepth: 2
