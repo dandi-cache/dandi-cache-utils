@@ -1,7 +1,5 @@
 # Agent instructions
 
-The organization's conventions, as set out in [`CodyCBakerPhD/historia`](https://github.com/CodyCBakerPhD/historia/blob/main/AGENTS.md), with the few places this repository differs noted as such.
-
 ## Commits and PRs
 
 - Always run `pre-commit` before committing and pushing changes.
