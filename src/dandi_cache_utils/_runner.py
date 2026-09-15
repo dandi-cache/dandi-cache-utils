@@ -100,7 +100,8 @@ def run_incremental_update(
     dataset: CacheDataset,
     /,
     *,
-    candidates: typing.Iterable,
+    candidates: typing.Iterable | None = None,
+    batch: typing.Iterable | None = None,
     process: typing.Callable[..., typing.Any],
     limit: int | None = None,
     output: str | None = None,
@@ -108,26 +109,37 @@ def run_incremental_update(
     on_failure: str = SKIP,
     failure_value: typing.Any = False,
     on_error: typing.Callable[[typing.Any, typing.Any], None] | None = None,
+    on_write: typing.Callable[[], None] | None = None,
     describe: typing.Callable[[typing.Any], str] | None = None,
     stages: typing.Mapping[str, str] | None = None,
     checkpoint_every: int | None = None,
     write: bool = True,
 ) -> tuple[dict, BatchResult]:
-    """Process the not-yet-recorded candidates and write the updated cache.
+    """Process a batch of items and write the updated cache.
+
+    Give `candidates` for the ordinary case, where the batch is whatever is not recorded yet,
+    capped at `limit`. Give `batch` instead when the cache selects its own items -- a `refresh`
+    re-assessing what it already recorded, built with `select_stale` -- since those are recorded by
+    definition and `limit` has already been applied in selecting them.
 
     `process` is called with the item, and with the per-item error scope as a second argument when
-    it accepts one -- setting `item.stage` on that scope is what routes a failure to the right
-    error log. Returning `NOTHING` records nothing for the item without counting as a failure.
+    it accepts one. Setting `item.stage` on that scope is what routes a failure to the right error
+    log, and anything put in `item.context` is reported with it, so a failure names the asset it was
+    working on rather than only the item's key. Returning `NOTHING` records nothing for the item
+    without counting as a failure.
     `on_error(item, scope)` is called for each failure, for caches that keep side outputs about
-    why an item failed.
+    why an item failed, and `on_write()` after each write of the cache itself, for caches that keep
+    those side outputs in files of their own and need all of them to land together.
 
     Returns the full `{item: value}` mapping and a `BatchResult` describing the batch.
     """
     if on_failure not in (SKIP, RECORD):
         raise ValueError(f"on_failure must be {SKIP!r} or {RECORD!r}, got {on_failure!r}.")
+    if (candidates is None) == (batch is None):
+        raise ValueError("Pass either `candidates`, to select the unrecorded ones, or `batch`, already selected.")
 
     records = dataset.read_output_lookup(output) if recorded is None else recorded
-    batch = select_new(candidates, records, limit=limit)
+    batch = list(batch) if candidates is None else select_new(candidates, records, limit=limit)
 
     result = BatchResult(considered=len(batch))
     staged_errors = StagedErrorLog(
@@ -175,12 +187,16 @@ def run_incremental_update(
 
         if write and checkpoint_every and index % checkpoint_every == 0:
             dataset.write_output_lookup(records, output)
+            if on_write is not None:
+                on_write()
             logger.info("%s: checkpointed %d records.", progress, len(records))
 
     result.elapsed_seconds = time.monotonic() - batch_start_time
 
     if write:
         file_path = dataset.write_output_lookup(records, output)
+        if on_write is not None:
+            on_write()
         logger.info(
             "Wrote %d records to %s (%d new, %d failed) in %.1f min (peak memory %.0f MiB).",
             len(records),

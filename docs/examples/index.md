@@ -4,9 +4,9 @@
 Streaming and walking each file costs real time, so a run advances the backlog by a bounded batch and leaves a failure for the next one.
 
 It is not a sketch.
-This is that repository's own `code/update.py` after the boilerplate was removed, and the test suite parses the `cache.toml` and compiles the code on every run, so an API change that would break it fails here rather than in a cache's next scheduled update.
+These two files are copies of that repository's own, and the test suite parses the `cache.toml` and compiles the code on every run, so an API change that would break it fails here rather than in a cache's next scheduled update.
 
-**245 lines became 45.** What went: the logging setup, the peak-memory helper, two copies of the same JSONL loader, the argument parser, the testing-mode file switching, the incremental frontier, the batch loop with its progress and summary lines, and the S3 layout probe with the HDF5 and Zarr walks.
+**245 lines became 43.** What went: the logging setup, the peak-memory helper, two copies of the same JSONL loader, the argument parser, the testing-mode file switching, the incremental frontier, the batch loop with its progress and summary lines, and the S3 layout probe with the HDF5 and Zarr walks.
 
 ## The declaration
 

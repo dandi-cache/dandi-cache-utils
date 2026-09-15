@@ -134,6 +134,25 @@ The one thing {func}`~dandi_cache_utils.run_incremental_update` will not guess:
 
 Both are correct for different caches and choosing wrongly is a real bug, so the shared runner asks for the choice rather than picking one quietly.
 
+### Re-assessing what is already recorded
+
+A cache whose answer depends on an evolving external tool has to revisit what it already recorded, which the ordinary frontier never will.
+Select that batch with {func}`~dandi_cache_utils.select_stale` and pass it as `batch` rather than `candidates`:
+
+```python
+dandi_cache.run_incremental_update(
+    dataset,
+    batch=dandi_cache.select_stale(recorded, checked_at, limit=limit, fraction_per_run=1 / 30),
+    process=inspect,
+    recorded=recorded,
+)
+```
+
+`fraction_per_run` sizes the batch from the cache's own size, so a daily run cycles through all of it over a month however large it grows.
+
+A cache that keeps side outputs about each item, such as when it was last checked, writes them from `on_write`.
+That runs after every write of the cache itself, checkpoints included, so all of its files land together and a run killed mid-batch leaves them consistent rather than one file ahead of the others.
+
 ### Rebuilding instead of resuming
 
 A cache that is a pure filter or reshaping of its input, with no per-item work worth resuming, uses {func}`~dandi_cache_utils.run_full_rebuild` instead.

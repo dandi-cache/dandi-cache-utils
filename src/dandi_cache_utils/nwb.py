@@ -30,6 +30,7 @@ __all__ = [
     "detect_layout",
     "electrical_series_paths",
     "inspect_nwbfile",
+    "inspect_nwbfile_object",
     "inspector_config",
     "is_nwb_path",
     "is_zarr_path",
@@ -197,14 +198,24 @@ def inspector_config(keyword: str = "dandi", /):
 
 
 def inspect_nwbfile(url: str, path: str, /, *, config=None, importance_threshold: str = "CRITICAL") -> list[str]:
-    """Run the NWB Inspector over a remote asset with the DANDI configuration.
+    """Open a remote asset and run the NWB Inspector over it with the DANDI configuration.
 
     Returns the formatted messages at or above the threshold; an empty list means the file is valid
     at that threshold. Pass `config` from `inspector_config()` to avoid reloading it per file.
     """
+    nwbfile, _io = open_nwbfile(url, path)
+    return inspect_nwbfile_object(nwbfile, config=config, importance_threshold=importance_threshold)
+
+
+def inspect_nwbfile_object(nwbfile, /, *, config=None, importance_threshold: str = "CRITICAL") -> list[str]:
+    """Run the NWB Inspector over an already-open file, returning the formatted messages.
+
+    Separate from `inspect_nwbfile` because opening a remote file and inspecting it fail for
+    unrelated reasons, and a cache that keeps an error log per failure mode has to be able to tell
+    which of the two it was.
+    """
     import nwbinspector
 
-    nwbfile, _io = open_nwbfile(url, path)
     messages = nwbinspector.inspect_nwbfile_object(
         nwbfile_object=nwbfile,
         config=config if config is not None else inspector_config(),

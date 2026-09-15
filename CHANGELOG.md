@@ -4,6 +4,12 @@
 
 ### 🚀 Enhancement
 
+- `run_incremental_update` takes a `batch` that the cache selected itself, so a `refresh` entry point can re-assess what it already recorded.
+  `select_stale` existed for exactly that and had no way to reach the loop, whose frontier drops anything already in the cache ([#6](https://github.com/dandi-cache/dandi-cache-utils/pull/6)).
+- `run_incremental_update` calls `on_write` after each write of the cache, checkpoints included, so a cache that keeps side outputs in files of their own can write them at the same moments.
+  Checkpointing only the main file would otherwise leave a killed run with one file ahead of the others ([#6](https://github.com/dandi-cache/dandi-cache-utils/pull/6)).
+- `nwb.inspect_nwbfile_object` runs the NWB Inspector over an already-open file, so a cache can keep opening and inspecting in separate error logs.
+  They fail for unrelated reasons, and `inspect_nwbfile` did both in one call ([#6](https://github.com/dandi-cache/dandi-cache-utils/pull/6)).
 - `AssetResolver.dandiset()` is public, so a cache can tell "no such Dandiset" from "no such asset within it".
   Both raise `dandi.exceptions.NotFoundError`, so a caller resolving several paths could only report the Dandiset failure once per path rather than once ([#5](https://github.com/dandi-cache/dandi-cache-utils/pull/5)).
 - Added `dandi_cache_utils`, the shared codebase every DANDI cache runs on: the JSONL shapes, the logging and size-capped error logs, the incremental frontier and batch loop with its two explicit failure policies, the standard command line, and the concrete DANDI operations (unsigned S3 client, tokenless asset resolution, remote NWB readers, and the structural walk the `valid-nwb-file-to-*` family shares).
