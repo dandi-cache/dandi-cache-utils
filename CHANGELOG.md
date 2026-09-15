@@ -4,6 +4,8 @@
 
 ### 🚀 Enhancement
 
+- Every cache now declares BIDS `1.11.1`, the current release, rather than the version each repository happened to carry.
+  A cache can still name its own, but the default moving is what keeps the family on one spec ([#10](https://github.com/dandi-cache/dandi-cache-utils/pull/10)).
 - The published `dataset_description.json` now carries what BIDS recommends and not only what it requires.
   `GeneratedBy` names this library, its version and the runtime image, and `SourceDatasets` lists the upstream caches, which `cache.toml` already declares as `[[inputs]]` ([#9](https://github.com/dandi-cache/dandi-cache-utils/pull/9)).
 - A cache that names no authors no longer publishes `"Authors": []`.

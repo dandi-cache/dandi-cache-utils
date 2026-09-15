@@ -15,6 +15,10 @@ SCHEMA = bidsschematools.schema.load_schema()
 METADATA = SCHEMA["objects"]["metadata"]
 DATASET_DESCRIPTION_RULES = SCHEMA["rules"]["dataset_metadata"]["dataset_description"]["fields"]
 
+#: Deliberately not the real release: the version published is whatever the caller passes, and
+#: pinning it here would mean editing this file on every bump without checking anything more.
+VERSION = "9.9.9"
+
 #: A cache of each shape: several inputs and a full description, and the bare minimum.
 CONFIGURATIONS = {
     "fully-declared": {
@@ -22,7 +26,6 @@ CONFIGURATIONS = {
         "inputs": [{"name": "qualifying-lfp-content-ids"}, {"name": "content-id-to-valid-nwb-file"}],
         "description": {
             "title": "DANDI Cache: Qualifying AIND Content IDs",
-            "bids_version": "1.11.0",
             "authors": ["Cody Baker"],
             "keywords": ["DANDI", "ephys"],
         },
@@ -37,7 +40,7 @@ def _level_of(field: str, /) -> str:
 
 
 def _describe(raw: dict, /) -> dict:
-    return dandi_cache.dataset_description(dandi_cache.parse_config(raw), version="0.1.3")
+    return dandi_cache.dataset_description(dandi_cache.parse_config(raw), version=VERSION)
 
 
 @pytest.mark.ai_generated
@@ -68,6 +71,20 @@ def test_every_field_has_the_type_the_schema_declares(raw):
 
 
 @pytest.mark.ai_generated
+@pytest.mark.parametrize("raw", CONFIGURATIONS.values(), ids=CONFIGURATIONS)
+def test_no_cache_claims_a_newer_spec_than_this_check_reads(raw):
+    """Conformance to a release this test has never seen would be a claim nothing here checked.
+
+    The bound only ever rises, so upgrading `bidsschematools` cannot fail this; declaring a version
+    ahead of the installed spec can, which is the mistake worth catching.
+    """
+    declared = tuple(int(part) for part in _describe(raw)["BIDSVersion"].split("."))
+    spec = tuple(int(part) for part in SCHEMA["bids_version"].split("."))
+
+    assert declared <= spec, f"declared BIDS {declared} over a schema that describes {spec}"
+
+
+@pytest.mark.ai_generated
 def test_the_dataset_type_is_one_the_schema_allows():
     """`study` is one of `raw`, `derivative` and `study`, and is the only one a cache is."""
     assert _describe(CONFIGURATIONS["bare"])["DatasetType"] in METADATA["DatasetType"]["enum"]
@@ -80,7 +97,7 @@ def test_generated_by_names_the_library_that_generated_it():
 
     assert required <= set(entry)
     assert entry["Name"] == "dandi-cache-utils"
-    assert entry["Version"] == "0.1.3"
+    assert entry["Version"] == VERSION
     assert set(entry["Container"]) <= set(METADATA["GeneratedBy"]["items"]["properties"]["Container"]["properties"])
     assert entry["Container"]["ContainerTag"] == "ghcr.io/dandi-cache/my-cache"
 

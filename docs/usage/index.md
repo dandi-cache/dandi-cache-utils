@@ -77,7 +77,7 @@ Rendered to `dataset_description.json` on the published branches, so no cache ca
 | `title` | the cache name | `Name` |
 | `authors` | empty | `Authors` |
 | `license` | `CC-BY-4.0` | `License` |
-| `bids_version` | `1.10.0` | `BIDSVersion` |
+| `bids_version` | `1.11.1` | `BIDSVersion` |
 | `keywords` | omitted | `Keywords` |
 | `references` | the cache's repository URL | `ReferencesAndLinks` |
 
