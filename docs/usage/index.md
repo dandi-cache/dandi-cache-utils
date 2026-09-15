@@ -192,6 +192,18 @@ RUN pip install /tmp/build && rm -rf /tmp/build
 Use the `:nwb` tag instead for a cache that streams remote NWB files; it already carries h5py, zarr, pynwb, hdmf-zarr, remfile, s3fs and the NWB Inspector, so those caches often need no dependencies of their own at all.
 Pin a release tag (`:0.1.0`) instead of `:latest` to hold a cache's orchestration still.
 
+`FROM` resolves when the cache's image is built, so a new release of this library reaches a cache only once that image is rebuilt.
+Publishing the base images asks every cache to do exactly that, through a `repository_dispatch` its build workflow listens for:
+
+```yaml
+on:
+  repository_dispatch:
+    types: [ base-image-published ]
+```
+
+A cache is found by having a `cache.toml`, so nothing needs adding to a list when one is migrated.
+A cache pinned to a version tag rebuilds on that same pinned base, which is what pinning is for.
+
 ## The `dandi-cache` command
 
 The image also carries a command for the pipeline steps that are pure data handling.
