@@ -185,6 +185,7 @@ jobs:
           GH_TOKEN: ${{ secrets._GITHUB_API_KEY }}
           ORGANIZATION: ${{ github.repository_owner }}
           EVENT_TYPE: base-image-published
+          CONFIG_FILE: cache.toml
         run: |
           # A repository is a cache when it declares itself one, so `cache.toml` at the root is the
           # criterion here as everywhere else: a newly migrated cache joins this fan-out without
@@ -194,10 +195,20 @@ jobs:
           REPOSITORIES=$(gh api --paginate "orgs/${ORGANIZATION}/repos" \
             --jq '.[] | select(.archived == false and .is_template == false) | .name')
 
+          # An empty listing means the organization could not be read -- a token that lost its
+          # scope, an API change -- rather than that there are no caches, and every check below
+          # would then quietly find nothing. That is the silence worth failing on.
+          if [ -z "${REPOSITORIES}" ]; then
+            echo "ERROR: listed no repositories in ${ORGANIZATION}, so nothing could be asked." >&2
+            exit 1
+          fi
+
           DISPATCHED=0
           FAILED=""
           for REPOSITORY in ${REPOSITORIES}; do
-            if ! gh api "repos/${ORGANIZATION}/${REPOSITORY}/contents/cache.toml" >/dev/null 2>&1; then
+            # On its default branch: a cache declares itself one when its migration merges, which
+            # is also when it starts being built FROM this base and has something to rebuild for.
+            if ! gh api "repos/${ORGANIZATION}/${REPOSITORY}/contents/${CONFIG_FILE}" >/dev/null 2>&1; then
               continue
             fi
 
@@ -218,11 +229,11 @@ jobs:
             echo "ERROR: could not ask these caches to rebuild:${FAILED}" >&2
             exit 1
           fi
-          # Silence is the failure mode worth catching: if the listing ever comes back empty, every
-          # cache quietly keeps running an old base, which is the problem this job exists to fix.
+          # Not an error: a cache declares itself one on its default branch, so a cache whose
+          # migration is still an open pull request does not match yet. Said plainly, because once
+          # the migrations have merged a run that reaches nobody is worth a look.
           if [ "${DISPATCHED}" -eq 0 ]; then
-            echo "ERROR: no cache repositories were found, so nothing was asked to rebuild." >&2
-            exit 1
+            echo "No repository declares a ${CONFIG_FILE} on its default branch, so there was nothing to ask."
           fi
 
   NotifyOnFailure:
