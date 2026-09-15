@@ -73,7 +73,7 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: dandi-cache/dandi-cache-action@v0
+      - uses: dandi-cache/dandi-cache-action@v1
         with:
           token: ${{ secrets._GITHUB_API_KEY }}
           operation: refresh
