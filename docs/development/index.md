@@ -22,15 +22,20 @@ Every test here is AI-generated and carries the `ai_generated` marker, so `pytes
 
 These two run in the image as well as on the runner.
 The `Test` matrix proves the sources work on three interpreters; the image build runs the same suite against the library as *installed in the image*, which is the artifact every cache actually runs.
-That second run is where the first rule below is genuinely tested: on the runner boto3, h5py and pynwb are not installed at all, so the core could hardly import them, while in the image they are.
+That second run is where the first rule below is genuinely tested: on the runner boto3, h5py and pynwb are not installed at all, so the package could hardly import them, while in the image they are.
 
-**The core imports nothing outside the standard library.** The pipeline script parses `cache.toml` with the CI runner's bare `python3`, before any environment exists, by running `config.py` directly.
-If anything in the core grew an import of boto3, h5py or click, the orchestration would break before a run even started.
-`tests/check_core_imports.py` fails on that.
+**Importing the package needs none of the extras.** The `:latest` base image installs `[s3,archive]` and not the NWB stack, so a module-level `import pynwb` anywhere the import graph reaches would break every cache built on it.
+`api`, `nwb` and `s3` therefore keep their third-party imports inside the functions that use them, which is also what makes the plain `from . import api, nwb, s3` in `__init__.py` free.
 
-**The public namespace is the intended one, at every level.** Every cache's update code is written against `dandi_cache.<TAB>`, so what completion lists *is* the API as far as anyone writing a cache is concerned.
-Left alone, a package gets this backwards: the implementation modules bound as a side effect of the re-exports show up, the lazily bound accessors (`nwb`, `s3`, `api`) do not, and every module offers its own imports alongside its functions, so `dandi_cache.jsonl.<TAB>` lists `gzip` and `pathlib` next to `read_lookup`.
-Every module here declares `__all__` and a `__dir__` that returns it, and the same check fails on a module that does not, on a public name missing from `__all__`, and on a private name exposed in it.
+**The bootstrap needs nothing at all.** The pipeline parses `cache.toml` with the CI runner's bare `python3` before any environment exists, by running `_config.py` as a plain script.
+That module imports nothing outside the standard library.
+Running it as a script rather than importing it means `__init__.py` never executes, which is why that one rule binds one file rather than the whole package.
+
+**The public namespace is the flat one.** Every cache's update code is written against `dandi_cache.<TAB>`, so what completion lists *is* the API as far as anyone writing a cache is concerned.
+The implementation modules are private (`_runner.py`, `_config.py`, and the rest), so they never appear there and nothing has to hide them.
+The three archive modules are public, because a cache names them directly, and each declares `__all__` and a `__dir__` that returns it so `dandi_cache.s3.<TAB>` lists its functions rather than `json` and `typing`.
+
+`tests/check_core_imports.py` fails on any of the three.
 
 ## Versioning
 

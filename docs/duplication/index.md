@@ -121,12 +121,12 @@ Worth stating plainly, because it is what the library must not try to absorb:
 | The Dockerfile, six times | `containers/Dockerfile`, published as the base image |
 | Input URLs, paths, branches, outputs, entry points, batch sizes | `cache.toml`, read by both the shell and the Python |
 | `dataset_description.json` | Rendered from `cache.toml` |
-| `compress.py`, six times | `dandi_cache_utils.jsonl`, exposed as `dandi-cache compress` |
-| The loaders and writers | `dandi_cache_utils.jsonl` |
-| Logging, peak memory, error logs | `dandi_cache_utils.logs` |
-| The frontier, the batch loop, the failure policies | `dandi_cache_utils.runner` |
-| `--testing` / `--limit` | `dandi_cache_utils.cli` |
-| The archive access and NWB reading | `dandi_cache_utils.dandi` |
+| `compress.py`, six times | `dandi_cache.compress_derivatives`, exposed as `dandi-cache compress` |
+| The loaders and writers | `dandi_cache.read_lookup` and friends |
+| Logging, peak memory, error logs | `dandi_cache.configure_logging`, `dandi_cache.ErrorLog` |
+| The frontier, the batch loop, the failure policies | `dandi_cache.run_incremental_update` |
+| `--testing` / `--limit` | `dandi_cache.open_dataset` |
+| The archive access and NWB reading | `dandi_cache.s3`, `dandi_cache.api`, `dandi_cache.nwb` |
 
 Where the copies disagreed, the better behaviour was taken, not the most common one: the push retry keeps the remote-SHA reconciliation from `qualifying-aind-content-ids`, the input handling keeps its never-fetch-the-recorded-commit fix and its idempotent registration, the cleanliness check keeps the template's corrected form, and `dist` publishes exactly the files `cache.toml` declares.
 

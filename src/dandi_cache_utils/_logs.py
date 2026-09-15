@@ -19,8 +19,6 @@ import traceback
 import types
 import typing
 
-#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
-#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
 __all__ = [
     "ErrorLog",
     "LOG_DIRECTORY_NAME",
@@ -202,7 +200,3 @@ class _StagedItem:
         if self.exception is None:
             return ""
         return f"{self.stage or 'processing'}: {type(self.exception).__name__}: {self.exception}"
-
-
-def __dir__() -> list[str]:
-    return list(__all__)

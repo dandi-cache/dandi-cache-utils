@@ -1,32 +1,32 @@
 API reference
 =============
 
-The modules below are the library. A cache's update code imports the top-level package and reaches
-everything through it:
+A cache's update code imports the top-level package and reaches everything through it:
 
 .. code-block:: python
 
    import dandi_cache_utils as dandi_cache
 
-   dandi_cache.open_dataset()           # re-exported from dandi_cache_utils.cli
-   dandi_cache.run_incremental_update() # re-exported from dandi_cache_utils.runner
-   dandi_cache.nwb.walk_structure()     # dandi_cache_utils.dandi.nwb, imported on first use
+   dandi_cache.open_dataset()
+   dandi_cache.run_incremental_update()
+   dandi_cache.nwb.walk_structure()
 
-The three DANDI modules are bound lazily, so a cache that only reads S3 never pays for ``pynwb``.
+That flat namespace is the API. The modules behind it are private, so there is one page to read
+rather than nine, and moving a function between them is not a breaking change.
 
-Core
-----
+The exceptions are the three archive modules, which a cache names directly because their
+dependencies are optional: ``api`` needs the DANDI client, ``nwb`` the remote NWB stack, and
+``s3`` boto3. Each keeps those imports inside the functions that use them, so importing the
+package costs nothing a cache has not installed.
 
-.. autosummary::
-   :toctree: generated
-   :recursive:
+The package
+-----------
 
-   dandi_cache_utils.cli
-   dandi_cache_utils.config
-   dandi_cache_utils.dataset
-   dandi_cache_utils.jsonl
-   dandi_cache_utils.logs
-   dandi_cache_utils.runner
+.. automodule:: dandi_cache_utils
+   :members:
+   :imported-members:
+   :undoc-members:
+   :show-inheritance:
 
 DANDI archive operations
 ------------------------
@@ -35,6 +35,6 @@ DANDI archive operations
    :toctree: generated
    :recursive:
 
-   dandi_cache_utils.dandi.api
-   dandi_cache_utils.dandi.nwb
-   dandi_cache_utils.dandi.s3
+   api
+   nwb
+   s3

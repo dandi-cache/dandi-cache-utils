@@ -22,11 +22,9 @@ import math
 import time
 import typing
 
-from .dataset import TESTING_LIMIT, CacheDataset
-from .logs import StagedErrorLog, logger, peak_memory_mib
+from ._dataset import TESTING_LIMIT, CacheDataset
+from ._logs import StagedErrorLog, logger, peak_memory_mib
 
-#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
-#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
 __all__ = [
     "BatchResult",
     "NOTHING",
@@ -258,7 +256,3 @@ def _accepts_second_argument(function: typing.Callable, /) -> bool:
     if any(parameter.kind is parameter.VAR_POSITIONAL for parameter in signature.parameters.values()):
         return True
     return len(positional) >= 2
-
-
-def __dir__() -> list[str]:
-    return list(__all__)

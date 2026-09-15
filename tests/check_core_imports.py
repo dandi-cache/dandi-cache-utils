@@ -1,193 +1,136 @@
-"""Check what the core imports, and what it offers to completion.
+"""Check what a clean interpreter sees: what gets imported, and what the package offers.
 
-Two properties that no ordinary test can observe, because both are about a clean interpreter's
-view of the package rather than about any function's return value:
+Two properties no ordinary test can observe, because both are about a fresh interpreter's view of
+the package rather than about any function's return value:
 
-1. Importing the core pulls in nothing outside the standard library. `bin/update_pipeline.sh`
-   parses `cache.toml` with the CI runner's bare `python3`, before any environment has been
-   built. If anything in the core grows an import of boto3, h5py or pynwb, the orchestration
-   stops working before the run even starts.
+1. `_config.py` runs as a plain script with nothing but the standard library available. That is
+   the pipeline's first step: it parses `cache.toml` with the CI runner's bare `python3`, against
+   the sources vendored into the image, before any environment has been built. Running it as a
+   script means the package's `__init__.py` never executes, so the rule binds that one file.
 
-2. The public namespace is the intended one, at every level. Every cache's `code/update.py` is
-   written against `dandi_cache.<TAB>`, so what completion lists is the API as far as anyone
-   writing a cache is concerned. Left alone, a package gets this backwards: the implementation
-   modules bound by the re-exports (`cli`, `config`, `dataset`, ...) show up, the lazily bound
-   accessors (`nwb`, `s3`, `api`) do not, and every module offers its own imports (`gzip`,
-   `pathlib`, `typing`) alongside its functions. `__dir__` fixes that, and this checks it stayed
-   fixed for the package and for each module it contains.
+2. Importing the package pulls in none of the optional extras, and offers the intended namespace.
+   The `:latest` base image installs `[s3,archive]` but not the NWB stack, so a module-level
+   `import pynwb` anywhere the import graph reaches would break every cache built on it. The
+   accessor modules keep their third-party imports inside the functions that use them, which is
+   what makes the plain `from . import api, nwb, s3` in `__init__.py` free.
 
-Run as a script, not under pytest: it has to observe a clean interpreter's `sys.modules`, and it
-deliberately never touches `nwb`, `s3` or `api`, whose dependencies it is asserting are absent.
+Run as a script, not under pytest: it has to observe a clean interpreter's `sys.modules`.
 """
 
-import ast
+import contextlib
+import importlib.abc
+import io
 import pathlib
+import runpy
 import sys
 
-#: `click`/`rich_click` are here with the heavy scientific stack for the same reason: the command
-#: line is the only part of the distribution that needs them, and the pipeline's first step runs
-#: without any of it.
-BLOCKED = {
+#: The optional extras. None of these may be imported by importing the package, and none of them
+#: may be reachable at all from the module the pipeline runs before an environment exists.
+EXTRAS = {
     "boto3",
     "botocore",
-    "click",
     "dandi",
     "h5py",
     "hdmf_zarr",
     "nwbinspector",
     "pynwb",
     "remfile",
-    "rich_click",
     "s3fs",
     "zarr",
 }
 
-#: Bound as attributes of the package by the re-exports in `__init__.py`, and hidden from
-#: completion on purpose: everything they define is re-exported, so naming them is a detour.
-IMPLEMENTATION_MODULES = {"cli", "config", "dandi", "dataset", "jsonl", "logs", "runner"}
+#: `rich-click` is the distribution's one required dependency, so the command line is imported
+#: with everything else. The bootstrap below never reaches it: it runs a module, not the package.
+BOOTSTRAP_BLOCKED = EXTRAS | {"click", "rich_click"}
 
-#: The modules a cache reaches for by name, which are bound only on first use.
-ACCESSOR_MODULES = {"api", "nwb", "s3"}
-
-#: Bound on first use for the same reason: the command line needs rich-click, and reading the
-#: version costs a metadata lookup, neither of which the orchestration's first step can afford.
-LAZY_ATTRIBUTES = {"dandi_cache_cli"}
-
-SOURCE_DIRECTORY = pathlib.Path(__file__).resolve().parents[1] / "src" / "dandi_cache_utils"
+REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
+SOURCE_DIRECTORY = REPOSITORY_ROOT / "src" / "dandi_cache_utils"
+EXAMPLE_CONFIG = REPOSITORY_ROOT / "docs" / "examples" / "valid-nwb-file-to-number-of-groups" / "cache.toml"
 
 
-def check_standard_library_only() -> list[str]:
-    """The core must not drag in a third-party package on import."""
-    import dandi_cache_utils  # noqa: F401
-    import dandi_cache_utils.cli  # noqa: F401
-    import dandi_cache_utils.config  # noqa: F401
-    import dandi_cache_utils.dataset  # noqa: F401
-    import dandi_cache_utils.jsonl  # noqa: F401
-    import dandi_cache_utils.logs  # noqa: F401
-    import dandi_cache_utils.runner  # noqa: F401
+class _Blocker(importlib.abc.MetaPathFinder):
+    """Makes the named packages unimportable, whether or not they are installed here."""
 
-    loaded = sorted(BLOCKED & set(sys.modules))
-    return [f"the core imported third-party modules: {loaded}"] if loaded else []
+    def __init__(self, blocked: set[str], /) -> None:
+        self.blocked = blocked
+
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in self.blocked:
+            raise ImportError(f"{name} is not available before the runner builds its environment")
+        return None
 
 
-def check_package_namespace() -> list[str]:
-    """`dandi_cache.<TAB>` must list the API, and only the API.
+def check_the_bootstrap_needs_only_the_standard_library() -> list[str]:
+    """Run the pipeline's first step the way the pipeline runs it, with the extras made absent."""
+    blocker = _Blocker(BOOTSTRAP_BLOCKED)
+    sys.meta_path.insert(0, blocker)
+    argv = sys.argv
+    sys.argv = ["_config.py", str(EXAMPLE_CONFIG)]
+    try:
+        # It renders the shell assignments on stdout, which is the pipeline's business, not ours.
+        with contextlib.redirect_stdout(io.StringIO()):
+            runpy.run_path(str(SOURCE_DIRECTORY / "_config.py"), run_name="__main__")
+    except BaseException as error:  # noqa: BLE001 - any failure here is the failure being checked
+        if not isinstance(error, SystemExit) or error.code not in (None, 0):
+            return [f"the pipeline's first step failed without an environment: {error!r}"]
+    finally:
+        sys.argv = argv
+        sys.meta_path.remove(blocker)
+    return []
 
-    This runs after the implementation modules have been imported by name above, which is exactly
-    the state in which they would leak, so it is the strongest point to look.
-    """
+
+def check_the_extras_are_not_imported() -> list[str]:
+    """Importing the package must not need anything the `:latest` image does not install."""
+    try:
+        import dandi_cache_utils  # noqa: F401
+    except ImportError as error:
+        return [f"the package could not be imported with only its required dependencies: {error}"]
+
+    loaded = sorted(EXTRAS & set(sys.modules))
+    return [f"importing the package pulled in optional extras: {loaded}"] if loaded else []
+
+
+def check_the_namespace_is_the_declared_one() -> list[str]:
+    """`dandi_cache.<TAB>` must list the API, and only the API."""
     import dandi_cache_utils
 
     failures = []
     offered = {name for name in dir(dandi_cache_utils) if not name.startswith("_")}
-    expected = set(dandi_cache_utils.__all__) | ACCESSOR_MODULES | LAZY_ATTRIBUTES
+    declared = set(dandi_cache_utils.__all__) - {"__version__"}
 
-    if leaked := sorted(offered & IMPLEMENTATION_MODULES):
-        failures.append(f"completion on the package offers implementation modules: {leaked}")
-    if missing := sorted(expected - offered):
-        failures.append(f"completion on the package is missing public names: {missing}")
-    if extra := sorted(offered - expected - IMPLEMENTATION_MODULES):
-        failures.append(f"completion on the package offers unintended names: {extra}")
-
-    # An advertised name that does not resolve is worse than a hidden one. The lazy names are
-    # excluded deliberately: resolving them would import the very packages checked for above.
-    lazy = ACCESSOR_MODULES | LAZY_ATTRIBUTES
-    for name in sorted(expected - lazy):
+    if leaked := sorted(offered - declared):
+        failures.append(f"completion on the package offers names outside `__all__`: {leaked}")
+    if missing := sorted(declared - offered):
+        failures.append(f"completion on the package is missing declared names: {missing}")
+    for name in sorted(declared):
         if not hasattr(dandi_cache_utils, name):
-            failures.append(f"`{name}` is advertised but does not resolve")
-    if eager := sorted(lazy & set(vars(dandi_cache_utils))):
-        failures.append(f"these must stay lazy but were imported eagerly: {eager}")
+            failures.append(f"`{name}` is declared but does not resolve")
 
-    try:
-        dandi_cache_utils.definitely_not_a_real_name
-    except AttributeError:
-        pass
-    else:
-        failures.append("an unknown attribute resolved instead of raising AttributeError")
-
-    # `__version__` is served lazily from `pyproject.toml`, the one place it is declared.
     if not isinstance(dandi_cache_utils.__version__, str) or not dandi_cache_utils.__version__:
         failures.append(f"`__version__` did not resolve to a version: {dandi_cache_utils.__version__!r}")
 
-    import dandi_cache_utils.dandi
-
-    if sorted(dir(dandi_cache_utils.dandi)) != sorted(ACCESSOR_MODULES):
-        failures.append(f"completion on `dandi` offers {sorted(dir(dandi_cache_utils.dandi))}")
-    return failures
-
-
-def _public_definitions(tree: ast.Module) -> list[str]:
-    """The public names a module defines itself, which is what its `__all__` should hold.
-
-    Imported names are excluded on purpose: a module's imports are the noise that `__dir__` is
-    there to keep out of its completion listing.
-    """
-    names = []
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if not node.name.startswith("_"):
-                names.append(node.name)
-        elif isinstance(node, ast.Assign):
-            names += [t.id for t in node.targets if isinstance(t, ast.Name) and not t.id.startswith("_")]
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if not node.target.id.startswith("_"):
-                names.append(node.target.id)
-    return names
-
-
-def check_every_module_declares_its_surface() -> list[str]:
-    """`dandi_cache.jsonl.<TAB>` must list what the module defines, not what it imports.
-
-    Scoping only the modules a cache names directly was half a job: every module here is reachable
-    by `import dandi_cache_utils.<name>`, and any that does not say what it offers offers its own
-    imports instead -- `gzip`, `json`, `pathlib`, `typing` -- mixed in with its functions.
-
-    Read rather than imported: some of these modules exist to be loaded only when their
-    dependencies are present, which is the property this script is here to prove.
-    """
-    failures = []
-    for path in sorted(SOURCE_DIRECTORY.rglob("*.py")):
-        relative = path.relative_to(SOURCE_DIRECTORY.parent)
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-
-        declared = None
-        defines_dir = False
-        for node in tree.body:
-            if isinstance(node, ast.Assign) and any(
-                isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets
-            ):
-                declared = [element.value for element in node.value.elts]
-            elif isinstance(node, ast.FunctionDef) and node.name == "__dir__":
-                defines_dir = True
-
-        if declared is None:
-            failures.append(f"{relative} does not declare `__all__`")
-        if not defines_dir:
-            failures.append(f"{relative} does not define `__dir__`, so completion ignores `__all__`")
-        if declared is None:
-            continue
-        if private := sorted(name for name in declared if name.startswith("_") and not name.startswith("__")):
-            failures.append(f"{relative} exposes private names in `__all__`: {private}")
-
-        # A package's `__all__` re-exports what it imports, and a private module's public functions
-        # are implementation detail, so the definitions have to match only for a public module.
-        if path.name == "__init__.py" or path.name.startswith("_"):
-            continue
-        defined = _public_definitions(tree)
-        if undeclared := sorted(set(defined) - set(declared)):
-            failures.append(f"{relative} defines public names missing from `__all__`: {undeclared}")
-        if phantom := sorted(set(declared) - set(defined)):
-            failures.append(f"{relative} declares names it does not define: {phantom}")
+    # The accessor modules are the one place a cache completes on a submodule, so they say what
+    # they offer rather than listing `json`, `typing` and the rest of their own imports.
+    for module in (dandi_cache_utils.api, dandi_cache_utils.nwb, dandi_cache_utils.s3):
+        if sorted(dir(module)) != sorted(module.__all__):
+            failures.append(f"completion on `{module.__name__}` offers {sorted(dir(module))}")
     return failures
 
 
 def main() -> int:
-    failures = check_standard_library_only() + check_package_namespace() + check_every_module_declares_its_surface()
+    # In this order: the bootstrap has to run before the package is imported, since importing it
+    # would leave the very modules the bootstrap is proving it does not need in `sys.modules`.
+    failures = check_the_bootstrap_needs_only_the_standard_library()
+    unimportable = check_the_extras_are_not_imported()
+    failures += unimportable
+    # Nothing can be said about a namespace that does not exist, so stop if the import failed.
+    if not unimportable:
+        failures += check_the_namespace_is_the_declared_one()
     for failure in failures:
         print(f"FAIL: {failure}", file=sys.stderr)
     if failures:
         return 1
-    print("OK: the core is standard-library only and its public namespace is the intended one.")
+    print("OK: the bootstrap needs only the standard library, and the namespace is the declared one.")
     return 0
 
 

@@ -61,22 +61,22 @@ The orchestration script is not a separate tree beside the package: it is part o
 It is data the package ships rather than an executable installed onto anyone's PATH, so every copy — a wheel, an editable checkout, the one inside the image — carries it at the same place.
 `dandi-cache pipeline --path` says where, and `dandi-cache pipeline` runs it.
 
-:::{note} `dandi_cache_utils.config` imports nothing outside the standard library, and a test enforces it.
-The pipeline's first step parses `cache.toml` with the CI runner's bare `python3`, before any environment has been built, by running `config.py` directly.
+:::{note} The module behind `cache.toml` imports nothing outside the standard library, and a test enforces it.
+The pipeline's first step parses `cache.toml` with the CI runner's bare `python3`, before any environment has been built, by running `_config.py` as a plain script.
 Everything after that runs through the installed `dandi-cache` command. :::
 
 ## What the library replaces
 
-| Module | What it replaces |
+| Where it lives now | What it replaces |
 |---|---|
-| {mod}`dandi_cache_utils.config` | The input URLs, paths, branches, output names, entry points and batch sizes hard-coded in each `update_pipeline.sh`, plus `dataset_description.json` |
-| {mod}`dandi_cache_utils.dataset` | The `sourcedata`/`derivatives`/`logs` path construction and the testing-mode file switching repeated in each `update.py` |
-| {mod}`dandi_cache_utils.jsonl` | Four copies of the mapping loader, three of the writer, and six copies of `compress.py` |
-| {mod}`dandi_cache_utils.logs` | The logging setup and peak-memory helper present in two of six caches, and three incompatible error-log mechanisms |
-| {mod}`dandi_cache_utils.runner` | The incremental frontier, the batch cap, the per-item loop, and the two failure policies |
-| {mod}`dandi_cache_utils.cli` | Four different spellings of `--testing` / `--limit` |
-| {mod}`dandi_cache_utils.dandi.s3` | The unsigned client, the tolerant reads, the content-addressed key layout, the concurrent map |
-| {mod}`dandi_cache_utils.dandi.api` | The tokenless client and the three-line asset resolution, written out in three caches |
-| {mod}`dandi_cache_utils.dandi.nwb` | The HDF5-versus-Zarr dispatch, the streaming readers, and the structural walk shared by the whole `valid-nwb-file-to-*` family |
+| `cache.toml` and its parser | The input URLs, paths, branches, output names, entry points and batch sizes hard-coded in each `update_pipeline.sh`, plus `dataset_description.json` |
+| `CacheDataset` | The `sourcedata`/`derivatives`/`logs` path construction and the testing-mode file switching repeated in each `update.py` |
+| The JSON Lines readers and writers | Four copies of the mapping loader, three of the writer, and six copies of `compress.py` |
+| The logging and error logs | The logging setup and peak-memory helper present in two of six caches, and three incompatible error-log mechanisms |
+| `run_incremental_update` and `run_full_rebuild` | The incremental frontier, the batch cap, the per-item loop, and the two failure policies |
+| `open_dataset` and the standard flags | Four different spellings of `--testing` / `--limit` |
+| {mod}`dandi_cache_utils.s3` | The unsigned client, the tolerant reads, the content-addressed key layout, the concurrent map |
+| {mod}`dandi_cache_utils.api` | The tokenless client and the three-line asset resolution, written out in three caches |
+| {mod}`dandi_cache_utils.nwb` | The HDF5-versus-Zarr dispatch, the streaming readers, and the structural walk shared by the whole `valid-nwb-file-to-*` family |
 
 [What was duplicated](../duplication/index.md) has the evidence behind that table.

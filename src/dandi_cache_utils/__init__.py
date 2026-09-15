@@ -26,10 +26,22 @@ Everything else -- the logging, the batch selection, the failure policy, the out
 testing mode, the shell orchestration, the container, and the CI workflows -- comes from here.
 """
 
-from .cli import build_parser, open_dataset, parse_arguments
-from .config import CacheConfig, InputCache, Operation, load_config, read_config
-from .dataset import TESTING_LIMIT, CacheDataset
-from .jsonl import (
+from . import api, nwb, pipeline, s3
+from ._arguments import build_parser, open_dataset, parse_arguments
+from ._cli import dandi_cache_cli
+from ._config import (
+    CONFIG_FILE_NAME,
+    CONFIG_PATH_VARIABLE,
+    CacheConfig,
+    InputCache,
+    Operation,
+    as_shell,
+    load_config,
+    parse_config,
+    read_config,
+)
+from ._dataset import TESTING_LIMIT, CacheDataset
+from ._jsonl import (
     compress,
     compress_derivatives,
     read_ids,
@@ -40,8 +52,8 @@ from .jsonl import (
     write_lookup,
     write_records,
 )
-from .logs import ErrorLog, StagedErrorLog, configure_logging, logger, peak_memory_mib
-from .runner import (
+from ._logs import ErrorLog, StagedErrorLog, configure_logging, logger, peak_memory_mib
+from ._runner import (
     NOTHING,
     RECORD,
     SKIP,
@@ -52,18 +64,12 @@ from .runner import (
     select_new,
     select_stale,
 )
-
-#: The modules a cache reaches for by name. They are bound on first use rather than imported
-#: here, so a cache that only reads S3 never pays for `pynwb`. They are deliberately absent from
-#: `__all__`: `from dandi_cache_utils import *` would otherwise drag in h5py and boto3.
-_LAZY_SUBMODULES = ("api", "nwb", "s3")
-
-#: Bound on first use for the same reason: `__version__` costs a metadata lookup the pipeline's
-#: hot path has no use for, and the command line needs rich-click, which the library must not.
-_LAZY_ATTRIBUTES = ("__version__", "dandi_cache_cli")
+from ._version import __version__
 
 __all__ = [
     "BatchResult",
+    "CONFIG_FILE_NAME",
+    "CONFIG_PATH_VARIABLE",
     "CacheConfig",
     "CacheDataset",
     "ErrorLog",
@@ -74,16 +80,23 @@ __all__ = [
     "SKIP",
     "StagedErrorLog",
     "TESTING_LIMIT",
+    "__version__",
+    "api",
+    "as_shell",
     "build_parser",
     "compress",
     "compress_derivatives",
     "configure_logging",
+    "dandi_cache_cli",
     "effective_limit",
     "load_config",
     "logger",
+    "nwb",
     "open_dataset",
     "parse_arguments",
+    "parse_config",
     "peak_memory_mib",
+    "pipeline",
     "read_config",
     "read_ids",
     "read_input",
@@ -91,51 +104,10 @@ __all__ = [
     "read_records",
     "run_full_rebuild",
     "run_incremental_update",
+    "s3",
     "select_new",
     "select_stale",
     "write_ids",
     "write_lookup",
     "write_records",
 ]
-
-
-def __getattr__(name: str):
-    """Bind `nwb` / `s3` / `api`, `dandi_cache_cli` and `__version__` on first use.
-
-    Everything here is imported on demand so that the core -- which the pipeline parses with the
-    CI runner's bare `python3` -- never pulls in boto3, h5py, pynwb or rich-click just to read
-    `cache.toml`. The imports are local for exactly that reason.
-    """
-    if name in _LAZY_SUBMODULES:
-        import importlib
-
-        module = importlib.import_module(f".dandi.{name}", __name__)
-        globals()[name] = module
-        return module
-    if name == "dandi_cache_cli":
-        from ._cli import dandi_cache_cli
-
-        globals()[name] = dandi_cache_cli
-        return dandi_cache_cli
-    if name == "__version__":
-        from ._version import read_version
-
-        version = read_version()
-        globals()[name] = version
-        return version
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def __dir__() -> list[str]:
-    """The public surface, which is what an editor or a shell offers on `dandi_cache.<TAB>`.
-
-    Without this, completion gets the namespace backwards: it lists the implementation modules
-    (`cli`, `config`, `dataset`, `jsonl`, `logs`, `runner`, `dandi`), which are bound as
-    attributes only as a side effect of the re-exports above and whose contents are all
-    re-exported anyway, while hiding `nwb`, `s3` and `api`, which are the modules a cache actually
-    reaches for and are bound only once used.
-
-    Hiding them from completion does not unimport them: `import dandi_cache_utils.config` still
-    works, and is how the pipeline reads `cache.toml`.
-    """
-    return sorted({*__all__, *_LAZY_SUBMODULES, *_LAZY_ATTRIBUTES})

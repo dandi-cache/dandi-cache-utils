@@ -4,11 +4,11 @@ import pathlib
 
 import pytest
 
-from dandi_cache_utils import config
+import dandi_cache_utils as dandi_cache
 
 
 def write_config(directory: pathlib.Path, text: str) -> pathlib.Path:
-    file_path = directory / config.CONFIG_FILE_NAME
+    file_path = directory / dandi_cache.CONFIG_FILE_NAME
     file_path.write_text(text)
     return file_path
 
@@ -17,7 +17,7 @@ def write_config(directory: pathlib.Path, text: str) -> pathlib.Path:
 def test_defaults_are_derived_from_the_cache_name(tmp_path):
     file_path = write_config(tmp_path, '[cache]\nname = "valid-nwb-file-to-number-of-groups"\n')
 
-    parsed = config.read_config(file_path)
+    parsed = dandi_cache.read_config(file_path)
 
     assert parsed.file_stem == "valid_nwb_file_to_number_of_groups"
     assert parsed.cache_file_name == "valid_nwb_file_to_number_of_groups.jsonl"
@@ -33,7 +33,7 @@ def test_an_input_needs_only_its_name(tmp_path):
         '[cache]\nname = "my-cache"\n\n[[inputs]]\nname = "content-id-to-valid-nwb-file"\n',
     )
 
-    only_input = config.read_config(file_path).only_input
+    only_input = dandi_cache.read_config(file_path).only_input
 
     assert only_input.url == "https://github.com/dandi-cache/content-id-to-valid-nwb-file.git"
     assert only_input.path == "sourcedata/content-id-to-valid-nwb-file"
@@ -67,7 +67,7 @@ def test_several_inputs_are_kept_in_order(tmp_path):
         ),
     )
 
-    parsed = config.read_config(file_path)
+    parsed = dandi_cache.read_config(file_path)
 
     assert [entry.name for entry in parsed.inputs] == [
         "qualifying-lfp-content-ids",
@@ -81,7 +81,7 @@ def test_several_inputs_are_kept_in_order(tmp_path):
 def test_update_is_always_an_operation(tmp_path):
     file_path = write_config(tmp_path, '[cache]\nname = "my-cache"\n')
 
-    update = config.read_config(file_path).operation("update")
+    update = dandi_cache.read_config(file_path).operation("update")
 
     assert update.script == "code/update.py"
     assert update.label == "Update"
@@ -95,7 +95,7 @@ def test_extra_operations_are_declared(tmp_path):
         '[cache]\nname = "my-cache"\n\n[operations.update]\nlimit = 500\n\n[operations.refresh]\nlabel = "Refresh"\n',
     )
 
-    parsed = config.read_config(file_path)
+    parsed = dandi_cache.read_config(file_path)
 
     assert parsed.operation("update").limit == 500
     assert parsed.operation("refresh").script == "code/refresh.py"
@@ -104,7 +104,7 @@ def test_extra_operations_are_declared(tmp_path):
 
 @pytest.mark.ai_generated
 def test_an_unknown_operation_names_the_declared_ones(tmp_path):
-    parsed = config.read_config(write_config(tmp_path, '[cache]\nname = "my-cache"\n'))
+    parsed = dandi_cache.read_config(write_config(tmp_path, '[cache]\nname = "my-cache"\n'))
 
     with pytest.raises(KeyError, match="update"):
         parsed.operation("rebuild")
@@ -126,7 +126,7 @@ def test_invalid_configurations_are_rejected(tmp_path, text):
     file_path = write_config(tmp_path, text)
 
     with pytest.raises((ValueError, TypeError)):
-        config.read_config(file_path)
+        dandi_cache.read_config(file_path)
 
 
 @pytest.mark.ai_generated
@@ -138,12 +138,12 @@ def test_two_inputs_cannot_share_a_path(tmp_path):
     )
 
     with pytest.raises(ValueError, match="same `path`"):
-        config.read_config(file_path)
+        dandi_cache.read_config(file_path)
 
 
 @pytest.mark.ai_generated
 def test_shell_rendering_round_trips_through_bash(tmp_path):
-    parsed = config.read_config(
+    parsed = dandi_cache.read_config(
         write_config(
             tmp_path,
             '[cache]\nname = "my-cache"\noutputs = ["a.jsonl", "b.jsonl"]\n\n'
@@ -151,7 +151,7 @@ def test_shell_rendering_round_trips_through_bash(tmp_path):
         )
     )
 
-    rendered = config.as_shell(parsed)
+    rendered = dandi_cache.as_shell(parsed)
 
     assert "CACHE_NAME=my-cache" in rendered
     assert "CACHE_OUTPUTS=(a.jsonl b.jsonl)" in rendered
@@ -161,11 +161,11 @@ def test_shell_rendering_round_trips_through_bash(tmp_path):
 
 @pytest.mark.ai_generated
 def test_shell_rendering_quotes_awkward_values(tmp_path):
-    parsed = config.read_config(
+    parsed = dandi_cache.read_config(
         write_config(tmp_path, '[cache]\nname = "my-cache"\n\n[[inputs]]\nname = "up"\npath = "source data/up"\n')
     )
 
-    assert "INPUT_PATHS=('source data/up')" in config.as_shell(parsed)
+    assert "INPUT_PATHS=('source data/up')" in dandi_cache.as_shell(parsed)
 
 
 @pytest.mark.ai_generated
@@ -175,7 +175,7 @@ def test_every_documented_description_key_is_read(tmp_path):
     A key that is documented but not read is worse than one that is missing: a cache sets it,
     nothing complains, and the published metadata quietly carries the default instead.
     """
-    file_path = tmp_path / config.CONFIG_FILE_NAME
+    file_path = tmp_path / dandi_cache.CONFIG_FILE_NAME
     file_path.write_text(
         '[cache]\nname = "my-cache"\n\n[description]\n'
         'title = "My Cache"\n'
@@ -186,7 +186,7 @@ def test_every_documented_description_key_is_read(tmp_path):
         'references = ["https://example.org/paper"]\n'
     )
 
-    parsed = config.read_config(file_path)
+    parsed = dandi_cache.read_config(file_path)
 
     assert parsed.description == {
         "Name": "My Cache",
@@ -201,7 +201,7 @@ def test_every_documented_description_key_is_read(tmp_path):
 
 @pytest.mark.ai_generated
 def test_dataset_description_is_generated(tmp_path):
-    parsed = config.read_config(
+    parsed = dandi_cache.read_config(
         write_config(
             tmp_path,
             '[cache]\nname = "my-cache"\n\n[description]\ntitle = "My Cache"\nauthors = ["Cody Baker"]\n'
@@ -223,7 +223,7 @@ def test_the_config_is_found_from_a_subdirectory(tmp_path):
     nested = tmp_path / "code" / "deeper"
     nested.mkdir(parents=True)
 
-    assert config.load_config(nested).name == "my-cache"
+    assert dandi_cache.load_config(nested).name == "my-cache"
 
 
 @pytest.mark.ai_generated
@@ -232,6 +232,6 @@ def test_the_environment_variable_wins(tmp_path, monkeypatch):
     elsewhere.mkdir()
     file_path = write_config(elsewhere, '[cache]\nname = "pointed-at"\n')
     write_config(tmp_path, '[cache]\nname = "nearby"\n')
-    monkeypatch.setenv(config.CONFIG_PATH_VARIABLE, str(file_path))
+    monkeypatch.setenv(dandi_cache.CONFIG_PATH_VARIABLE, str(file_path))
 
-    assert config.load_config(tmp_path).name == "pointed-at"
+    assert dandi_cache.load_config(tmp_path).name == "pointed-at"

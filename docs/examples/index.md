@@ -33,6 +33,6 @@ This is that repository's own `code/update.py` after the boilerplate was removed
 ## The other shapes
 
 This cache is incremental with one output, which is the common case.
-A cache that is a pure filter, with no per-item work worth resuming, calls {func}`~dandi_cache_utils.runner.run_full_rebuild` instead.
+A cache that is a pure filter, with no per-item work worth resuming, calls {func}`~dandi_cache_utils.run_full_rebuild` instead.
 A cache that writes several files in one pass declares them all under `cache.outputs`, and one that has a second entry point declares it as another `[operations.<name>]` table.
 Both are covered in the [usage reference](../usage/index.md).

@@ -4,7 +4,7 @@ Three caches independently reimplemented the same three-line resolution, so it l
 The client is always tokenless: a cache publishes its results publicly, so it must only ever see
 public Dandisets, and running without a token is what guarantees that.
 
-Prefer `dandi_cache_utils.dandi.s3` when a content ID alone is enough. The API is needed only when
+Prefer `dandi_cache_utils.s3` when a content ID alone is enough. The API is needed only when
 the cache has to go from a Dandiset path to the bytes, or wants asset metadata such as `created`.
 """
 

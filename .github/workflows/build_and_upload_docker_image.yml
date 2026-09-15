@@ -124,14 +124,17 @@ jobs:
           IMAGE=$(printf '%s' "${{ steps.tags.outputs.list }}" | cut -d, -f1)
           docker run --rm "${IMAGE}" bash -n /opt/dandi-cache-utils/src/dandi_cache_utils/pipeline/update_pipeline.sh
           # The version is declared once, in `pyproject.toml`, and reaches the image by two routes:
-          # the installed distribution's metadata, and -- for the vendored sources the runner
-          # imports without installing anything -- the `pyproject.toml` shipped beside them. Both
-          # must agree, and with the tag this image is about to be published under.
+          # the installed distribution's metadata, and -- for the vendored sources, which are
+          # imported from `src/` without being installed -- the `pyproject.toml` shipped beside
+          # them. Both must agree, and with the tag this image is about to be published under.
           VERSION=$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
-          READ_VERSION='import dandi_cache_utils; print(dandi_cache_utils.__version__)'
-          INSTALLED=$(docker run --rm "${IMAGE}" python -c "${READ_VERSION}")
-          VENDORED=$(docker run --rm -e PYTHONPATH=/opt/dandi-cache-utils/src "${IMAGE}" \
-            /usr/bin/python3 -c "${READ_VERSION}")
+          INSTALLED=$(docker run --rm "${IMAGE}" python -c \
+            'import dandi_cache_utils; print(dandi_cache_utils.__version__)')
+          # The second route, read the way nothing-is-installed reads it: the system interpreter
+          # running the vendored `_version.py` on its own, which falls back to the `pyproject.toml`
+          # shipped beside the sources because there is no distribution metadata to find.
+          VENDORED=$(docker run --rm "${IMAGE}" /usr/bin/python3 -c \
+            'import runpy; print(runpy.run_path("/opt/dandi-cache-utils/src/dandi_cache_utils/_version.py")["__version__"])')
           if [ "${INSTALLED}" != "${VERSION}" ] || [ "${VENDORED}" != "${VERSION}" ]; then
             echo "ERROR: the tree declares ${VERSION}, but the image reports ${INSTALLED} installed" >&2
             echo "       and ${VENDORED} from the vendored sources." >&2
@@ -139,11 +142,11 @@ jobs:
           fi
           docker run --rm "${IMAGE}" test -f /opt/dandi-cache-utils/src/dandi_cache_utils/pipeline/runner-requirements.txt
           # Exercise the exact path the pipeline takes on the runner: the *system* interpreter
-          # (outside the image's virtual environment, so nothing is installed) importing the
-          # vendored sources to parse a real cache.toml. This is what proves the core stayed
-          # standard-library only in a shipped image, not just in the test matrix.
+          # (outside the image's virtual environment, so nothing is installed) running the
+          # vendored `_config.py` as a script to parse a real cache.toml. This is what proves the
+          # bootstrap stayed standard-library only in a shipped image, not just in the test matrix.
           docker run --rm -v "$PWD":/repo:ro "${IMAGE}" \
-            /usr/bin/python3 /opt/dandi-cache-utils/src/dandi_cache_utils/config.py \
+            /usr/bin/python3 /opt/dandi-cache-utils/src/dandi_cache_utils/_config.py \
             /repo/docs/examples/valid-nwb-file-to-number-of-groups/cache.toml
           # And the command itself, which is what the pipeline uses once the runner has an
           # environment: it needs the package installed, so this exercises the other half.

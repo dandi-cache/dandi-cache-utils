@@ -19,8 +19,6 @@ import pathlib
 import shutil
 import typing
 
-#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
-#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
 __all__ = [
     "compress",
     "compress_derivatives",
@@ -135,7 +133,3 @@ def compress_derivatives(base_directory: pathlib.Path, /) -> list[pathlib.Path]:
     """Gzip every `derivatives/*.jsonl` file for distribution; return the compressed paths."""
     derivatives_directory = base_directory / "derivatives"
     return [compress(jsonl_file_path) for jsonl_file_path in sorted(derivatives_directory.glob("*.jsonl"))]
-
-
-def __dir__() -> list[str]:
-    return list(__all__)

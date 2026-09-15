@@ -46,7 +46,7 @@ Each is registered as a DataLad subdataset and pinned with `--input` in every ru
 | `path` | `sourcedata/<name>` | Where it is registered in the dataset. |
 | `branch` | `derivatives` | The branch the upstream publishes on. |
 | `file_name` | `<underscored name>.jsonl` | The file to read within it. |
-| `format` | `lookup` | How {meth}`~dandi_cache_utils.dataset.CacheDataset.read_input` parses it. |
+| `format` | `lookup` | How {meth}`~dandi_cache_utils.CacheDataset.read_input` parses it. |
 
 The three formats are the three shapes a cache's JSON Lines file takes: `lookup` (one single-key object per line, merged into one mapping), `records` (one independent JSON value per line, kept as a list) and `ids` (one bare scalar per line, collected into a set).
 
@@ -125,7 +125,7 @@ The argument parsing, the logging, the incremental frontier, the batch cap, the 
 
 ### Choosing the failure policy
 
-The one thing {func}`~dandi_cache_utils.runner.run_incremental_update` will not guess:
+The one thing {func}`~dandi_cache_utils.run_incremental_update` will not guess:
 
 - **`dandi_cache.SKIP`** leaves a failed item unrecorded, so a later run retries it.
   Right when the work is known to be possible and a failure is almost always transient — a network read.
@@ -136,7 +136,7 @@ Both are correct for different caches and choosing wrongly is a real bug, so the
 
 ### Rebuilding instead of resuming
 
-A cache that is a pure filter or reshaping of its input, with no per-item work worth resuming, uses {func}`~dandi_cache_utils.runner.run_full_rebuild` instead.
+A cache that is a pure filter or reshaping of its input, with no per-item work worth resuming, uses {func}`~dandi_cache_utils.run_full_rebuild` instead.
 It takes the same `dataset`, builds the whole mapping in one pass, and has no frontier, limit or failure policy to choose.
 
 ## The workflows

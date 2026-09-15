@@ -14,13 +14,13 @@ A change that is purely CI, documentation or examples needs neither.
   A cache's own `update.yml` is a schedule and one step.
 - Added the base images, published as `ghcr.io/dandi-cache/dandi-cache-utils:latest` (core, S3 and the DANDI API) and `:nwb` (plus the remote NWB reading stack).
   Each release also publishes the version as its own tag, so a cache can pin its orchestration to an exact release.
-- Added the `dandi-cache` command (`compress`, `config show`, `config shell`, `dataset-description`), built on `rich-click`.
-  The library never imports it, so importing `dandi_cache_utils` still pulls in nothing outside the standard library.
+- Added the `dandi-cache` command (`compress`, `config show`, `config shell`, `dataset-description`), built on `rich-click`, the distribution's one required dependency.
+  The optional extras stay out of the import graph: `api`, `nwb` and `s3` import theirs inside the functions that use them, so a cache on the `:latest` image never pays for the NWB stack.
 
 ### 🏠 Internal
 
 - The image build now runs the test suite against the library as installed in the image, in both the `:latest` and `:nwb` stages.
-  The test matrix only ever exercised the sources on the runner, where the third-party packages the core must not import are not installed, so `check_core_imports.py` was passing partly by luck; inside the image they are present.
+  The test matrix only ever exercised the sources on the runner, where the extras the package must not import are not installed, so `check_core_imports.py` was passing partly by luck; inside the image they are present.
 
 - Adopted the organization's `AGENTS.md` conventions.
   Every test carries the `ai_generated` marker, the tests import only what `__init__.py` exposes publicly (`dandi_cache_cli` among it, bound lazily so the library still imports without rich-click), and version resolution moved out of `__init__.py` into `_version.py`.

@@ -10,7 +10,7 @@ import importlib.metadata
 import pathlib
 import tomllib
 
-__all__ = ["DISTRIBUTION_NAME", "read_version"]
+__all__ = ["DISTRIBUTION_NAME", "__version__", "read_version"]
 
 DISTRIBUTION_NAME = "dandi-cache-utils"
 
@@ -27,5 +27,5 @@ def read_version() -> str:
     return version
 
 
-def __dir__() -> list[str]:
-    return list(__all__)
+#: Resolved once, at import, from whichever of the two routes above applies.
+__version__ = read_version()

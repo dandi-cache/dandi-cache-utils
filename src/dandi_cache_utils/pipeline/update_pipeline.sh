@@ -134,9 +134,11 @@ push_with_retry() {
 # Read the cache's declarative configuration.
 #
 # The same `cache.toml` the update code reads is parsed here, with the runner's bare `python3`
-# against the sources vendored beside this script. That is why `dandi_cache_utils.config` imports
-# nothing outside the standard library: at this point in the run no environment exists yet, so the
-# module is run as a plain script rather than through the `dandi-cache` command, which needs one.
+# against the sources vendored beside this script. At this point in the run no environment exists
+# yet, so `_config.py` is run as a plain script rather than through the `dandi-cache` command,
+# which needs one. That is why that module imports nothing outside the standard library; running
+# it as a script also means the package's `__init__.py` never executes, so only the one file has
+# to hold to it.
 # ---------------------------------------------------------------------------------------------
 CONFIG_FILE="${WORKSPACE}/cache.toml"
 if [ ! -f "${CONFIG_FILE}" ]; then
@@ -144,7 +146,7 @@ if [ ! -f "${CONFIG_FILE}" ]; then
   exit 1
 fi
 
-config_as_shell() { python3 "${PACKAGE_DIRECTORY}/config.py" "$@"; }
+config_as_shell() { python3 "${PACKAGE_DIRECTORY}/_config.py" "$@"; }
 
 # Everything after the runner's environment is built goes through the installed command instead.
 dandi_cache() { "${RUNNER_VENV}/bin/dandi-cache" "$@"; }

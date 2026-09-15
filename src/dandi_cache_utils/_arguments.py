@@ -16,12 +16,10 @@ import argparse
 import pathlib
 import typing
 
-from .config import DEFAULT_OPERATION, CacheConfig, load_config
-from .dataset import TESTING_LIMIT, CacheDataset
-from .logs import logger
+from ._config import DEFAULT_OPERATION, CacheConfig, load_config
+from ._dataset import TESTING_LIMIT, CacheDataset
+from ._logs import logger
 
-#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
-#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
 __all__ = [
     "BASE_DIRECTORY_HELP",
     "LIMIT_HELP",
@@ -122,7 +120,3 @@ def open_dataset(
         "; testing mode" if dataset.testing else "",
     )
     return dataset, arguments
-
-
-def __dir__() -> list[str]:
-    return list(__all__)

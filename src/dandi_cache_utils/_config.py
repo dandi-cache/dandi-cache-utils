@@ -19,8 +19,6 @@ import sys
 import tomllib
 import typing
 
-#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
-#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
 __all__ = [
     "CONFIG_FILE_NAME",
     "CONFIG_PATH_VARIABLE",
@@ -379,7 +377,3 @@ def _main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
-
-
-def __dir__() -> list[str]:
-    return list(__all__)

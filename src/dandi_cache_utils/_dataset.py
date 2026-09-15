@@ -13,12 +13,10 @@ published, a testing artifact can never reach the `dist` branch even if one is l
 import dataclasses
 import pathlib
 
-from . import jsonl
-from .config import CacheConfig, InputCache, load_config
-from .logs import LOG_DIRECTORY_NAME, configure_logging
+from . import _jsonl
+from ._config import CacheConfig, InputCache, load_config
+from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
-#: What this module offers on `<TAB>`. Everything here is defined below; the module's own
-#: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
 __all__ = [
     "CacheDataset",
     "TESTING_FILE_PREFIX",
@@ -92,7 +90,7 @@ class CacheDataset:
         otherwise be read as empty, and the run would happily publish an empty cache over a good one.
         """
         input_cache: InputCache = self.config.only_input if name is None else self.config.input(name)
-        return jsonl.read_input(self.input_file_path(name), format=input_cache.format, required=required)
+        return _jsonl.read_input(self.input_file_path(name), format=input_cache.format, required=required)
 
     def output_file_path(self, name: str | None = None, /) -> pathlib.Path:
         """The path of one of this cache's declared output files, redirected in testing mode."""
@@ -108,20 +106,16 @@ class CacheDataset:
         This is the basis of every incremental update: what is already recorded here is what the
         run does not need to do again.
         """
-        return jsonl.read_lookup(self.output_file_path(name))
+        return _jsonl.read_lookup(self.output_file_path(name))
 
     def write_output_lookup(self, records: dict, name: str | None = None, /) -> pathlib.Path:
         """Write a `{key: value}` mapping to one of this cache's declared outputs."""
         file_path = self.output_file_path(name)
-        jsonl.write_lookup(file_path, records)
+        _jsonl.write_lookup(file_path, records)
         return file_path
 
     def write_output_records(self, records: list, name: str | None = None, /) -> pathlib.Path:
         """Write a list of records, one JSON value per line, to one of this cache's outputs."""
         file_path = self.output_file_path(name)
-        jsonl.write_records(file_path, records)
+        _jsonl.write_records(file_path, records)
         return file_path
-
-
-def __dir__() -> list[str]:
-    return list(__all__)

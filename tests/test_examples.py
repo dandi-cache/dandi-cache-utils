@@ -10,7 +10,7 @@ import pathlib
 
 import pytest
 
-from dandi_cache_utils import config
+import dandi_cache_utils as dandi_cache
 
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXAMPLES = sorted(path for path in (REPOSITORY_ROOT / "docs" / "examples").iterdir() if path.is_dir())
@@ -24,7 +24,7 @@ def test_there_are_worked_examples():
 @pytest.mark.ai_generated
 @pytest.mark.parametrize("example", EXAMPLES, ids=lambda path: path.name)
 def test_every_example_config_is_valid(example):
-    parsed = config.read_config(example / config.CONFIG_FILE_NAME)
+    parsed = dandi_cache.read_config(example / dandi_cache.CONFIG_FILE_NAME)
 
     assert parsed.name == example.name
     assert parsed.image == f"ghcr.io/dandi-cache/{example.name}"
@@ -33,7 +33,7 @@ def test_every_example_config_is_valid(example):
 @pytest.mark.ai_generated
 @pytest.mark.parametrize("example", EXAMPLES, ids=lambda path: path.name)
 def test_every_declared_operation_has_a_script(example):
-    parsed = config.read_config(example / config.CONFIG_FILE_NAME)
+    parsed = dandi_cache.read_config(example / dandi_cache.CONFIG_FILE_NAME)
 
     for operation in parsed.operations.values():
         assert (
