@@ -10,8 +10,6 @@ import importlib.metadata
 import pathlib
 import tomllib
 
-__all__ = ["DISTRIBUTION_NAME", "__version__", "read_version"]
-
 DISTRIBUTION_NAME = "dandi-cache-utils"
 
 

@@ -19,29 +19,6 @@ import sys
 import tomllib
 import typing
 
-__all__ = [
-    "CONFIG_FILE_NAME",
-    "CONFIG_PATH_VARIABLE",
-    "CacheConfig",
-    "DEFAULT_BIDS_VERSION",
-    "DEFAULT_INPUT_BRANCH",
-    "DEFAULT_LICENSE",
-    "DEFAULT_OPERATION",
-    "IMAGE_TEMPLATE",
-    "INPUT_FORMATS",
-    "InputCache",
-    "ORGANIZATION",
-    "Operation",
-    "REPOSITORY_URL_TEMPLATE",
-    "as_shell",
-    "describe",
-    "find_config",
-    "load_config",
-    "parse_config",
-    "read_config",
-    "underscored",
-]
-
 CONFIG_FILE_NAME = "cache.toml"
 
 # Every cache in the organization lives here and publishes its runtime image here, so both are
@@ -61,11 +38,6 @@ DEFAULT_INPUT_BRANCH = "derivatives"
 INPUT_FORMATS = ("lookup", "records", "ids")
 
 DEFAULT_OPERATION = "update"
-
-
-def underscored(name: str, /) -> str:
-    """Convert a hyphenated cache name to the underscored form used for file names."""
-    return name.replace("-", "_")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -159,7 +131,7 @@ def _parse_input(raw: dict, /) -> InputCache:
         url=raw.get("url", REPOSITORY_URL_TEMPLATE.format(organization=ORGANIZATION, name=name)),
         path=raw.get("path", f"sourcedata/{name}"),
         branch=raw.get("branch", DEFAULT_INPUT_BRANCH),
-        file_name=raw.get("file", f"{underscored(name)}.jsonl"),
+        file_name=raw.get("file", f'{name.replace("-", "_")}.jsonl'),
         format=input_format,
     )
 
@@ -229,7 +201,7 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
     if name != name.lower() or "_" in name or " " in name:
         raise ValueError(f"`cache.name` must be the lowercase, hyphenated repository name; got {name!r}.")
 
-    file_stem = cache.get("file_stem", underscored(name))
+    file_stem = cache.get("file_stem", name.replace("-", "_"))
     outputs = tuple(cache.get("outputs", [f"{file_stem}.jsonl"]))
     if not outputs:
         raise ValueError(f"{name} declares no `cache.outputs`; at least one derivatives file must be published.")
@@ -355,7 +327,7 @@ def describe(config: CacheConfig, /) -> str:
     return "\n".join(lines)
 
 
-def _main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> None:
     """The bootstrap entry point, run as a plain script by the pipeline.
 
     This is deliberately not part of the `dandi-cache` command: the pipeline renders the config
@@ -372,8 +344,7 @@ def _main(argv: list[str] | None = None) -> int:
 
     config = read_config(arguments.config) if arguments.config is not None else load_config()
     print(as_shell(config, operation=arguments.operation))
-    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(_main())
+    _main()

@@ -20,15 +20,6 @@ from ._config import DEFAULT_OPERATION, CacheConfig, load_config
 from ._dataset import TESTING_LIMIT, CacheDataset
 from ._logs import logger
 
-__all__ = [
-    "BASE_DIRECTORY_HELP",
-    "LIMIT_HELP",
-    "TESTING_HELP",
-    "build_parser",
-    "open_dataset",
-    "parse_arguments",
-]
-
 BASE_DIRECTORY_HELP = (
     "The directory containing the `sourcedata`, `derivatives` and `logs` directories. Set to the "
     "mounted dataset path when run inside the pipeline container; defaults to the repository root."

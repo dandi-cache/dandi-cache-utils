@@ -53,7 +53,9 @@ The organization's conventions, as set out in [`CodyCBakerPhD/historia`](https:/
   The public API is the flat namespace `__init__.py` re-exports, so nothing needs hiding from completion and moving a function between modules is not a breaking change.
 - `__init__.py` holds imports and `__all__` and nothing else: no `__getattr__`, no `__dir__`, no branching.
   If a name has to be bound lazily to keep an import out, the import belongs inside the function that needs it instead.
-- `__all__` lists the public submodules alongside the names, and never a private name.
+- Only `__init__.py` and the public modules declare `__all__`.
+  A private module's would declare nothing, since nothing can import it to read one.
+- The package's `__all__` lists the public submodules alongside the names, and never a private name.
 - A public module is one a cache names directly: `api`, `nwb`, `s3` and `pipeline`.
   Each declares `__all__` and a `__dir__` that returns it, since they are the only modules anyone completes on.
 - Do not add compatibility aliases when renaming.

@@ -19,19 +19,6 @@ import pathlib
 import shutil
 import typing
 
-__all__ = [
-    "compress",
-    "compress_derivatives",
-    "iter_json_lines",
-    "read_ids",
-    "read_input",
-    "read_lookup",
-    "read_records",
-    "write_ids",
-    "write_lookup",
-    "write_records",
-]
-
 
 def iter_json_lines(file_path: pathlib.Path, /) -> typing.Iterator[typing.Any]:
     """Yield one parsed JSON value per non-blank line, transparently handling `.gz`."""

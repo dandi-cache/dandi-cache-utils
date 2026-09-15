@@ -19,8 +19,6 @@ import rich_click
 
 from . import _config, _jsonl, pipeline
 
-__all__ = ["dandi_cache_cli"]
-
 CONFIG_ARGUMENT = rich_click.argument(
     "file",
     type=rich_click.Path(exists=True, dir_okay=False, path_type=pathlib.Path),

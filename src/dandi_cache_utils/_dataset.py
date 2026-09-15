@@ -17,12 +17,6 @@ from . import _jsonl
 from ._config import CacheConfig, InputCache, load_config
 from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
-__all__ = [
-    "CacheDataset",
-    "TESTING_FILE_PREFIX",
-    "TESTING_LIMIT",
-]
-
 TESTING_FILE_PREFIX = "testing_"
 
 # A testing run processes this many items: enough to exercise the real processing logic end to
