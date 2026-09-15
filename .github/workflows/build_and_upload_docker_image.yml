@@ -175,7 +175,7 @@ jobs:
     if: ${{ always() && failure() }}
     permissions: {}
     steps:
-      - uses: dawidd6/action-send-mail@v18
+      - uses: dawidd6/action-send-mail@v21
         with:
           server_address: smtp.gmail.com
           server_port: 465
