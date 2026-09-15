@@ -1,21 +1,19 @@
 """Count the internal groups of every valid NWB file (HDF5 or Zarr).
 
-The real `code/update.py` of dandi-cache/valid-nwb-file-to-number-of-groups, rewritten on
-`dandi_cache_utils`: 245 lines become these. Everything removed was shared with its siblings --
-the logging setup, the peak-memory helper, two copies of the same JSONL loader, the argument
-parser, the testing-mode file switching, the incremental frontier, the batch loop with its
-progress and summary lines, and the S3 layout probe with the HDF5 and Zarr walks.
+The archive is content-addressed, so nothing here consults the DANDI API: the blob key is probed
+and the asset is read as Zarr when no such blob exists. Nothing is downloaded either, in either
+layout.
+
+Everything shared with the other caches -- the argument parsing, the logging, the batch cap, the
+error logs, the output paths, testing mode, and the S3 layout probe with the HDF5 and Zarr walks
+-- comes from `dandi_cache_utils`, which the runtime image carries.
 """
 
 import dandi_cache_utils as dandi_cache
 
 
-def count_groups(content_id: str, item) -> int:
-    """Count the groups in one asset, resolved straight from its content ID.
-
-    The archive is content-addressed, so no DANDI API lookup is needed: the blob key is probed and
-    the asset is read as Zarr when no such blob exists.
-    """
+def count_groups(content_id, item) -> int:
+    """Count the groups in one asset, root group included, resolved straight from its content ID."""
     item.stage = "reading the NWB file"
     return dandi_cache.nwb.walk_structure(content_id).number_of_groups
 
