@@ -206,6 +206,73 @@ def test_checkpoints_survive_a_killed_run(dataset):
 
 
 @pytest.mark.ai_generated
+def test_a_supplied_batch_re_assesses_what_is_already_recorded(dataset):
+    dataset.write_output_lookup({"a": False, "b": False})
+
+    records, result = dandi_cache.run_incremental_update(
+        dataset,
+        batch=["a"],
+        process=lambda item: True,
+    )
+
+    assert records == {"a": True, "b": False}
+    assert result.considered == 1
+
+
+@pytest.mark.ai_generated
+def test_the_batch_has_to_be_selected_exactly_one_way(dataset):
+    with pytest.raises(ValueError, match="either `candidates`"):
+        dandi_cache.run_incremental_update(dataset, process=lambda item: 1)
+
+    with pytest.raises(ValueError, match="either `candidates`"):
+        dandi_cache.run_incremental_update(dataset, candidates=["a"], batch=["a"], process=lambda item: 1)
+
+
+@pytest.mark.ai_generated
+def test_side_outputs_are_written_with_the_cache(dataset):
+    checked_at = {}
+
+    def process(item):
+        checked_at[item] = "2026-09-15"
+        return True
+
+    dandi_cache.run_incremental_update(
+        dataset,
+        candidates=["a", "b", "c", "d"],
+        process=process,
+        checkpoint_every=2,
+        on_write=lambda: dataset.write_output_lookup(checked_at, "my_cache_checked_at.jsonl"),
+    )
+
+    assert dandi_cache.read_lookup(dataset.output_file_path("my_cache_checked_at.jsonl")) == {
+        item: "2026-09-15" for item in "abcd"
+    }
+
+
+@pytest.mark.ai_generated
+def test_side_outputs_keep_up_with_a_killed_run(dataset):
+    checked_at = {}
+
+    def process(item):
+        if item == "c":
+            raise KeyboardInterrupt
+        checked_at[item] = "2026-09-15"
+        return True
+
+    with pytest.raises(KeyboardInterrupt):
+        dandi_cache.run_incremental_update(
+            dataset,
+            candidates=list("abcd"),
+            process=process,
+            checkpoint_every=2,
+            on_write=lambda: dataset.write_output_lookup(checked_at, "my_cache_checked_at.jsonl"),
+        )
+
+    assert sorted(dandi_cache.read_lookup(dataset.output_file_path())) == ["a", "b"]
+    assert sorted(dandi_cache.read_lookup(dataset.output_file_path("my_cache_checked_at.jsonl"))) == ["a", "b"]
+
+
+@pytest.mark.ai_generated
 def test_testing_mode_never_touches_the_real_cache(tmp_path):
     cache_config = dandi_cache.parse_config({"cache": {"name": "my-cache"}, "inputs": []}, directory=tmp_path)
     real = CacheDataset(config=cache_config, base_directory=tmp_path)
