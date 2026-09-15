@@ -4,6 +4,11 @@
 
 ### 🚀 Enhancement
 
+- The published `dataset_description.json` now carries what BIDS recommends and not only what it requires.
+  `GeneratedBy` names this library, its version and the runtime image, and `SourceDatasets` lists the upstream caches, which `cache.toml` already declares as `[[inputs]]` ([#9](https://github.com/dandi-cache/dandi-cache-utils/pull/9)).
+- A cache that names no authors no longer publishes `"Authors": []`.
+  The field is optional in BIDS, and an empty list asserts there are none rather than leaving it undeclared ([#9](https://github.com/dandi-cache/dandi-cache-utils/pull/9)).
+
 - `run_incremental_update` takes a `batch` that the cache selected itself, so a `refresh` entry point can re-assess what it already recorded.
   `select_stale` existed for exactly that and had no way to reach the loop, whose frontier drops anything already in the cache ([#6](https://github.com/dandi-cache/dandi-cache-utils/pull/6)).
 - `run_incremental_update` calls `on_write` after each write of the cache, checkpoints included, so a cache that keeps side outputs in files of their own can write them at the same moments.

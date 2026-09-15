@@ -18,6 +18,7 @@ import pathlib
 import rich_click
 
 from . import _config, _jsonl, pipeline
+from ._version import __version__
 
 CONFIG_ARGUMENT = rich_click.argument(
     "file",
@@ -122,7 +123,7 @@ def dataset_description_command(file: pathlib.Path | None, output: pathlib.Path 
     The pipeline writes this onto the published branches, so no cache repository maintains the
     file by hand.
     """
-    rendered = json.dumps(_load(file).description, indent=4) + "\n"
+    rendered = json.dumps(_config.dataset_description(_load(file), version=__version__), indent=4) + "\n"
     if output is None:
         rich_click.echo(rendered, nl=False)
         return

@@ -81,7 +81,14 @@ Rendered to `dataset_description.json` on the published branches, so no cache ca
 | `keywords` | omitted | `Keywords` |
 | `references` | the cache's repository URL | `ReferencesAndLinks` |
 
-`DatasetType` is always `study`, because every cache is one.
+`DatasetType` is always `study`, because every cache is one, and it is one of the three values BIDS allows alongside `raw` and `derivative`.
+
+Two more fields are rendered from what the cache already declares elsewhere, rather than from this section.
+`SourceDatasets` lists the `[[inputs]]`, since a cache's upstream caches are exactly the datasets it was derived from.
+`GeneratedBy` names this library, the version doing the generating, and the runtime image, because it describes the process that produced the copy in hand rather than anything the cache declares about itself.
+
+Only `Name` and `BIDSVersion` are required by BIDS; everything else here is what it recommends.
+The rendered document is validated against `bidsschematools`, the BIDS maintainers' machine-readable specification, on every test run.
 
 The pipeline writes the file onto the `derivatives` dataset at the start of every run and copies it to `dist`, so it cannot fall behind the declaration.
 To see what a cache will publish:
