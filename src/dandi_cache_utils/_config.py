@@ -165,7 +165,9 @@ def _parse_operations(raw: dict, /, *, cache_name: str) -> dict[str, Operation]:
     return operations
 
 
-DEFAULT_BIDS_VERSION = "1.10.0"
+#: The current BIDS release, which every cache declares unless it says otherwise, so that the
+#: family moves forward together rather than one repository at a time.
+DEFAULT_BIDS_VERSION = "1.11.1"
 DEFAULT_LICENSE = "CC-BY-4.0"
 
 #: This library, named as the process that generates every cache, for BIDS `GeneratedBy`.
