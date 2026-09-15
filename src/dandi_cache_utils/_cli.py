@@ -10,6 +10,7 @@ nothing outside the standard library -- which matters, because the pipeline scri
 environment is built, comes through here.
 """
 
+import difflib
 import importlib.metadata
 import json
 import os
@@ -109,6 +110,10 @@ def pipeline_command(print_path: bool, arguments: tuple[str, ...]) -> None:
     os.execvp("bash", ["bash", str(pipeline.SCRIPT_PATH), *arguments])
 
 
+#: The name of the committed copy, relative to the `cache.toml` it is rendered from.
+DESCRIPTION_FILE = "dataset_description.json"
+
+
 @dandi_cache_cli.command("dataset-description")
 @CONFIG_ARGUMENT
 @rich_click.option(
@@ -117,13 +122,40 @@ def pipeline_command(print_path: bool, arguments: tuple[str, ...]) -> None:
     default=None,
     help="Write to this path instead of standard output.",
 )
-def dataset_description_command(file: pathlib.Path | None, output: pathlib.Path | None) -> None:
+@rich_click.option(
+    "--declared",
+    is_flag=True,
+    help="Render the repository's copy, which records no generating version. Implied by --check.",
+)
+@rich_click.option(
+    "--check",
+    is_flag=True,
+    help=f"Compare `{DESCRIPTION_FILE}` beside the config against --declared and fail if it differs.",
+)
+def dataset_description_command(
+    file: pathlib.Path | None,
+    output: pathlib.Path | None,
+    declared: bool,
+    check: bool,
+) -> None:
     """Render the BIDS `dataset_description.json` declared in `cache.toml`.
 
-    The pipeline writes this onto the published branches, so no cache repository maintains the
-    file by hand.
+    Two renderings, differing by one key. The published one, which the pipeline writes onto the
+    published branches, records in `GeneratedBy` the library version that produced that copy. The
+    declared one does not, because a repository is not a copy anything generated, and a version
+    baked into a committed file would go stale the moment the library releases -- which would turn
+    every cache red on a release rather than on a mistake.
+
+    `--check` is how CI holds the committed copy to the declaration it came from. A cache that has
+    no copy passes: the file is optional, and adopting it is what makes it checked.
     """
-    rendered = json.dumps(_config.dataset_description(_load(file), version=__version__), indent=4) + "\n"
+    config = _load(file)
+    rendered = (
+        json.dumps(_config.dataset_description(config, version=None if declared or check else __version__), indent=4)
+        + "\n"
+    )
+    if check:
+        return _check_description(config, rendered=rendered)
     if output is None:
         rich_click.echo(rendered, nl=False)
         return
@@ -131,3 +163,30 @@ def dataset_description_command(file: pathlib.Path | None, output: pathlib.Path 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rendered)
     rich_click.echo(output)
+
+
+def _check_description(config: _config.CacheConfig, /, *, rendered: str) -> None:
+    """Fail loudly, and with the diff, when the committed copy is not what `cache.toml` declares."""
+    committed = (config.directory or pathlib.Path.cwd()) / DESCRIPTION_FILE
+    if not committed.is_file():
+        rich_click.echo(f"{committed} does not exist, so there is nothing to disagree with the configuration.")
+        return
+
+    found = committed.read_text()
+    if found == rendered:
+        rich_click.echo(f"{committed} is what cache.toml declares.")
+        return
+
+    difference = difflib.unified_diff(
+        found.splitlines(keepends=True),
+        rendered.splitlines(keepends=True),
+        fromfile=f"{committed} (committed)",
+        tofile="cache.toml (declared)",
+    )
+    rich_click.echo(f"ERROR: {committed} is not what cache.toml declares.", err=True)
+    rich_click.echo("".join(difference), err=True, nl=False)
+    rich_click.echo(
+        "\nRegenerate it with:\n" f"  dandi-cache dataset-description --declared --output {DESCRIPTION_FILE}",
+        err=True,
+    )
+    raise SystemExit(1)

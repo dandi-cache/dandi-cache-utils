@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dandi-cache-utils"
-version = "0.1.4"
+version = "0.1.5"
 description = "The shared operations, orchestration, and CI used by every DANDI Cache."
 readme = "README.md"
 # The container runs 3.13, but the config module is also imported by the CI runner's system
