@@ -169,9 +169,65 @@ jobs:
           docker run --rm -v "$PWD":/repo:ro -w /repo -e PYTHONPYCACHEPREFIX=/tmp/pycache "${IMAGE}" \
             bash -c 'pip install --quiet pytest && python -m pytest tests -q -p no:cacheprovider && python tests/check_core_imports.py'
 
+  RebuildCacheImages:
+    # Every cache image is built `FROM` the base this workflow just published, and `FROM` resolves
+    # at build time -- so a cache keeps whatever base it was last built on. Nothing rebuilt them: a
+    # cache's own image build only fires when its Dockerfile or its dependencies change, which a
+    # release here is not. A library fix, an orchestration fix, and the monthly refresh of the NWB
+    # stack all reached ghcr and stopped there. This is what carries them the rest of the way.
+    needs: [ BuildAndPush ]
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Ask every cache to rebuild on the new base
+        env:
+          GH_TOKEN: ${{ secrets._GITHUB_API_KEY }}
+          ORGANIZATION: ${{ github.repository_owner }}
+          EVENT_TYPE: base-image-published
+        run: |
+          # A repository is a cache when it declares itself one, so `cache.toml` at the root is the
+          # criterion here as everywhere else: a newly migrated cache joins this fan-out without
+          # anyone remembering to add it to a list, and a cache that has not migrated yet is not
+          # built FROM this base and is correctly left alone. The template declares one too, and is
+          # excluded by its template flag.
+          REPOSITORIES=$(gh api --paginate "orgs/${ORGANIZATION}/repos" \
+            --jq '.[] | select(.archived == false and .is_template == false) | .name')
+
+          DISPATCHED=0
+          FAILED=""
+          for REPOSITORY in ${REPOSITORIES}; do
+            if ! gh api "repos/${ORGANIZATION}/${REPOSITORY}/contents/cache.toml" >/dev/null 2>&1; then
+              continue
+            fi
+
+            # A cache that has not yet added the trigger accepts the dispatch and does nothing with
+            # it, so this is safe to send to every cache and self-healing once one adds it.
+            if gh api --method POST "repos/${ORGANIZATION}/${REPOSITORY}/dispatches" \
+                 -f "event_type=${EVENT_TYPE}" >/dev/null 2>&1; then
+              echo "${REPOSITORY}: asked to rebuild."
+              DISPATCHED=$((DISPATCHED + 1))
+            else
+              echo "${REPOSITORY}: dispatch FAILED." >&2
+              FAILED="${FAILED} ${REPOSITORY}"
+            fi
+          done
+
+          echo "Dispatched to ${DISPATCHED} cache(s)."
+          if [ -n "${FAILED}" ]; then
+            echo "ERROR: could not ask these caches to rebuild:${FAILED}" >&2
+            exit 1
+          fi
+          # Silence is the failure mode worth catching: if the listing ever comes back empty, every
+          # cache quietly keeps running an old base, which is the problem this job exists to fix.
+          if [ "${DISPATCHED}" -eq 0 ]; then
+            echo "ERROR: no cache repositories were found, so nothing was asked to rebuild." >&2
+            exit 1
+          fi
+
   NotifyOnFailure:
     runs-on: ubuntu-latest
-    needs: [ BuildAndPush ]
+    needs: [ BuildAndPush, RebuildCacheImages ]
     if: ${{ always() && failure() }}
     permissions: {}
     steps:
