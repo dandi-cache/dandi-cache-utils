@@ -150,7 +150,7 @@ jobs:
       packages: read
     timeout-minutes: 330
     steps:
-      - uses: dandi-cache/dandi-cache-action@v0
+      - uses: dandi-cache/dandi-cache-action@v1
         with:
           token: ${{ secrets._GITHUB_API_KEY }}
           testing: ${{ inputs.testing || false }}

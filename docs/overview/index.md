@@ -30,7 +30,7 @@ A template's files are copied once and then diverge — which is the problem thi
 What is referenced instead is fixed once for everyone.
 
 The actions and the pipeline they run are split across two repositories on purpose.
-The action is CI glue with an interface of its own — its inputs — and it is versioned at that interface, so a cache pins `@v0` there while tracking the runtime image separately.
+The action is CI glue with an interface of its own — its inputs — and it is versioned at that interface, so a cache pins `@v1` there while tracking the runtime image separately.
 The orchestration script is not CI glue: it is the thing being run, and it ships inside the image so that the digest recorded in a run's provenance pins the pipeline and the runtime environment together.
 The action's job is to pull that image, extract the script, and run it.
 
