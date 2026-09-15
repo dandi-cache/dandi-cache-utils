@@ -37,14 +37,21 @@ class AssetResolver:
         self.client = api_client if api_client is not None else client()
         self._dandisets: dict = {}
 
-    def _dandiset(self, dandiset_id: str):
+    def dandiset(self, dandiset_id: str, /):
+        """The remote Dandiset, fetched once and reused.
+
+        Public because "no such Dandiset" and "no such asset within it" are different problems: a
+        caller resolving several paths wants to report the first once, rather than once per path.
+        Both raise `dandi.exceptions.NotFoundError`, so they can only be told apart by asking
+        separately.
+        """
         if dandiset_id not in self._dandisets:
             self._dandisets[dandiset_id] = self.client.get_dandiset(dandiset_id=dandiset_id)
         return self._dandisets[dandiset_id]
 
     def asset(self, dandiset_id: str, path: str, /):
         """The remote asset at `path` within `dandiset_id`."""
-        return self._dandiset(dandiset_id).get_asset_by_path(path=path)
+        return self.dandiset(dandiset_id).get_asset_by_path(path=path)
 
     def content_url(self, dandiset_id: str, path: str, /) -> str:
         """The direct S3 URL of an asset, suitable for a streaming reader."""

@@ -4,6 +4,8 @@
 
 ### 🚀 Enhancement
 
+- `AssetResolver.dandiset()` is public, so a cache can tell "no such Dandiset" from "no such asset within it".
+  Both raise `dandi.exceptions.NotFoundError`, so a caller resolving several paths could only report the Dandiset failure once per path rather than once ([#5](https://github.com/dandi-cache/dandi-cache-utils/pull/5)).
 - Added `dandi_cache_utils`, the shared codebase every DANDI cache runs on: the JSONL shapes, the logging and size-capped error logs, the incremental frontier and batch loop with its two explicit failure policies, the standard command line, and the concrete DANDI operations (unsigned S3 client, tokenless asset resolution, remote NWB readers, and the structural walk the `valid-nwb-file-to-*` family shares).
 - Added the orchestration script, one for every cache, shipped inside the package as `dandi_cache_utils.pipeline` and driven by the cache's own `cache.toml` rather than by straight-line code per repository.
 - The CI a cache calls lives in [`dandi-cache-action`](https://github.com/dandi-cache/dandi-cache-action) rather than here: they are actions, versioned at their own interface, and a reusable workflow cannot be listed on the Marketplace.
