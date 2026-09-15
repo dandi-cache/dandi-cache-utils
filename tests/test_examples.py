@@ -52,6 +52,6 @@ def test_the_pipeline_and_its_requirements_are_part_of_the_package():
     """They are data the package ships, not a tree beside it that an installation could miss."""
     from dandi_cache_utils import pipeline
 
-    assert pipeline.script_path().is_file()
-    assert pipeline.runner_requirements_path().is_file()
-    assert pipeline.script_path().parent.name == "pipeline"
+    assert pipeline.SCRIPT_PATH.is_file()
+    assert pipeline.RUNNER_REQUIREMENTS_PATH.is_file()
+    assert pipeline.SCRIPT_PATH.parent.name == "pipeline"

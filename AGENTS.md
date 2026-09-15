@@ -54,8 +54,8 @@ The organization's conventions, as set out in [`CodyCBakerPhD/historia`](https:/
 - `__init__.py` holds imports and `__all__` and nothing else: no `__getattr__`, no `__dir__`, no branching.
   If a name has to be bound lazily to keep an import out, the import belongs inside the function that needs it instead.
 - `__all__` lists the public submodules alongside the names, and never a private name.
-- The three archive modules (`api`, `nwb`, `s3`) are public because a cache names them directly.
-  They declare `__all__` and a `__dir__` that returns it, since they are the only modules anyone completes on.
+- A public module is one a cache names directly: `api`, `nwb`, `s3` and `pipeline`.
+  Each declares `__all__` and a `__dir__` that returns it, since they are the only modules anyone completes on.
 - Do not add compatibility aliases when renaming.
   Update the call sites.
 

@@ -104,11 +104,10 @@ def pipeline_command(print_path: bool, arguments: tuple[str, ...]) -> None:
     how to reach it without knowing how the installation is laid out. CI extracts the vendored
     copy from the container image and runs it directly; everything else can run it from here.
     """
-    script = pipeline.script_path()
     if print_path:
-        rich_click.echo(script)
+        rich_click.echo(pipeline.SCRIPT_PATH)
         return
-    os.execvp("bash", ["bash", str(script), *arguments])
+    os.execvp("bash", ["bash", str(pipeline.SCRIPT_PATH), *arguments])
 
 
 @dandi_cache_cli.command("dataset-description")
