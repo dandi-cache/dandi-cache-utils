@@ -123,8 +123,10 @@ def run_incremental_update(
     definition and `limit` has already been applied in selecting them.
 
     `process` is called with the item, and with the per-item error scope as a second argument when
-    it accepts one -- setting `item.stage` on that scope is what routes a failure to the right
-    error log. Returning `NOTHING` records nothing for the item without counting as a failure.
+    it accepts one. Setting `item.stage` on that scope is what routes a failure to the right error
+    log, and anything put in `item.context` is reported with it, so a failure names the asset it was
+    working on rather than only the item's key. Returning `NOTHING` records nothing for the item
+    without counting as a failure.
     `on_error(item, scope)` is called for each failure, for caches that keep side outputs about
     why an item failed, and `on_write()` after each write of the cache itself, for caches that keep
     those side outputs in files of their own and need all of them to land together.
