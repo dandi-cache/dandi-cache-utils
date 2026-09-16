@@ -4,6 +4,17 @@
 
 ### 🚀 Enhancement
 
+- `nwb.walk_structure` takes a `links` policy, because an HDF5 file with a soft link is two different trees and the `valid-nwb-file-to-*` caches were split between them.
+  `LINKS_SKIPPED` walks the hard-link object tree, exactly as `h5py.Group.visititems` does, which is what the published values were computed with; `LINKS_FOLLOWED` walks the hierarchy as named, guarding cycles by object address, which is what the out-degree and cophenetic caches always did.
+  Half of the archive's NWB files contain a soft link -- `/acquisition/<series>/imaging_plane` routinely points at `/general/optophysiology` -- so this is the difference between migrating a cache and rewriting tens of thousands of its published numbers ([#12](https://github.com/dandi-cache/dandi-cache-utils/pull/12)).
+- `Structure` gained `out_degrees` and `total_cophenetic_index`, the two shape measures that cannot be recovered after the fact.
+  Both are properties of the arrangement, and the walk is the only place the arrangement exists: two very differently shaped trees can have identical leaf depths ([#12](https://github.com/dandi-cache/dandi-cache-utils/pull/12)).
+- `Structure.leaf_depths` now counts a childless group as a leaf, which it always was.
+  The field previously counted datasets only, and every cache that computes a tree-shape index has always counted the empty group, so a cache wired to it as it stood would have published different numbers for any file containing one.
+  Nothing read the field yet, so the correction costs nothing ([#12](https://github.com/dandi-cache/dandi-cache-utils/pull/12)).
+- `nwb.walk_hdf5_group` and `nwb.walk_zarr_group` summarize an already-open hierarchy, the structural counterpart to `inspect_nwbfile_object`.
+  They are what makes the walk testable against a file built to contain the constructs the two policies disagree about, rather than only against the archive ([#12](https://github.com/dandi-cache/dandi-cache-utils/pull/12)).
+
 - `dandi-cache dataset-description` gained `--declared`, the rendering a cache commits beside its `cache.toml`, and `--check`, which fails with a diff when that committed copy is not what the configuration declares.
   A repository can now carry the description it publishes without it becoming a second source of truth ([#11](https://github.com/dandi-cache/dandi-cache-utils/pull/11)).
 - Every cache now declares BIDS `1.11.1`, the current release, rather than the version each repository happened to carry.
