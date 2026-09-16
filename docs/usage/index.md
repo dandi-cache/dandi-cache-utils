@@ -161,6 +161,23 @@ The one thing {func}`~dandi_cache_utils.run_incremental_update` will not guess:
 
 Both are correct for different caches and choosing wrongly is a real bug, so the shared runner asks for the choice rather than picking one quietly.
 
+### Choosing the link policy
+
+The other thing the library will not guess, for a cache that walks an NWB file's structure.
+
+An HDF5 file with a soft link is two different trees, and half of the archive's NWB files have one: `/acquisition/<series>/imaging_plane` routinely points at the plane's real home under `/general/optophysiology`.
+Whether that plane's datasets are children of the series or only of `general` is not a detail — it changes the leaf depths, the dataset count, and every index computed from them.
+
+- **`dandi_cache.nwb.LINKS_SKIPPED`** (the default) walks the hard-link object tree: a soft or external link is not a child, and an object reachable twice is counted once, at the first path that reaches it.
+  This is exactly what `h5py.Group.visititems` does, so it is what a cache that predates this library has already published.
+- **`dandi_cache.nwb.LINKS_FOLLOWED`** walks the hierarchy as it is named: every entry of a group is a child of it, whatever kind of link put it there.
+  A group already walked is not walked again — that is what stops a link cycle — but it is still a child of the node that named it.
+
+Neither is the right one.
+A cache migrating onto the library picks the one its published values were computed with, and `Structure.links` records the choice.
+
+Zarr has no links, so the policy does not apply to it and `Structure.links` is `None`.
+
 ### Re-assessing what is already recorded
 
 A cache whose answer depends on an evolving external tool has to revisit what it already recorded, which the ordinary frontier never will.
@@ -196,7 +213,7 @@ jobs:
       packages: read
     timeout-minutes: 330
     steps:
-      - uses: dandi-cache/dandi-cache-action@v1
+      - uses: dandi-cache/dandi-cache-action@v2
         with:
           token: ${{ secrets._GITHUB_API_KEY }}
           testing: ${{ inputs.testing || false }}
