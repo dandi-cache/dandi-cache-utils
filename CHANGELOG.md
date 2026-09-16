@@ -4,6 +4,13 @@
 
 ### 🚀 Enhancement
 
+- Added `dandi-cache check-operations`, which holds a cache's own operation scripts to the library its image carries.
+  The image build proved the image and the `cache.toml` and never the one file the cache itself contributes, so a script naming a function the installed library does not have passed every check and failed at the next scheduled run, on the real `derivatives` branch.
+  That is not hypothetical: it was the exposure between a library release and the migrations depending on it ([#14](https://github.com/dandi-cache/dandi-cache-utils/pull/14)).
+- The check reads the syntax tree rather than importing the script, because an import cannot catch this.
+  A name used inside a function body is resolved when that function runs, so importing the module executes its top level and never touches it.
+  A test pins that distinction so a later simplification does not quietly undo the check ([#14](https://github.com/dandi-cache/dandi-cache-utils/pull/14)).
+
 - `s3` gained `dandiset_ids`, `asset_manifest_keys`, `dandiset_assets` and `content_id_from_content_urls`, the four things every cache that reads the archive's manifests had its own copy of.
   `asset_manifest_keys` walks every version rather than only `draft`, because an asset a draft has since dropped is still part of the published version holding it ([#13](https://github.com/dandi-cache/dandi-cache-utils/pull/13)).
 - `content_id_from_content_urls` is one function rather than a line each cache repeats, because the rule is not obvious and failing it is silent.
