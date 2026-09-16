@@ -18,7 +18,7 @@ import pathlib
 
 import rich_click
 
-from . import _config, _jsonl, pipeline
+from . import _check, _config, _jsonl, pipeline
 from ._version import __version__
 
 CONFIG_ARGUMENT = rich_click.argument(
@@ -112,6 +112,30 @@ def pipeline_command(print_path: bool, arguments: tuple[str, ...]) -> None:
 
 #: The name of the committed copy, relative to the `cache.toml` it is rendered from.
 DESCRIPTION_FILE = "dataset_description.json"
+
+
+@dandi_cache_cli.command("check-operations")
+@CONFIG_ARGUMENT
+def check_operations_command(file: pathlib.Path | None) -> None:
+    """Check this cache's own operation scripts against the installed library.
+
+    The image build proves the image and the configuration are sound, and says nothing about the
+    one file the cache itself contributes. A script naming a function this library does not have
+    passes every other check and fails at the next scheduled run, on the real data.
+
+    An import would not catch it: a name used inside a function body is resolved when that function
+    runs, so this reads the syntax tree instead.
+    """
+    config = _load(file)
+    problems = _check.check_operations(config)
+    if problems:
+        rich_click.echo(f"{config.name}: {len(problems)} problem(s) in its operation scripts.", err=True)
+        for problem in problems:
+            rich_click.echo(f"  {problem}", err=True)
+        raise SystemExit(1)
+
+    scripts = ", ".join(operation.script for _name, operation in sorted(config.operations.items()))
+    rich_click.echo(f"{scripts}: every `dandi_cache_utils` name used is one this library offers.")
 
 
 @dandi_cache_cli.command("dataset-description")
