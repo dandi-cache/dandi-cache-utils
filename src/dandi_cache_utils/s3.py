@@ -25,15 +25,21 @@ import typing
 __all__ = [
     "ABSENT_ERROR_CODES",
     "ASSETS_MANIFEST_KEY",
+    "ASSETS_MANIFEST_SUFFIX",
     "BUCKET",
+    "DANDISETS_PREFIX",
     "DANDISET_MANIFEST_KEY",
     "PUBLIC_BASE_URL",
     "REGION",
     "anonymous_client",
+    "asset_manifest_keys",
     "blob_key",
     "blob_url",
     "concurrent_map",
+    "content_id_from_content_urls",
+    "dandiset_assets",
     "dandiset_created",
+    "dandiset_ids",
     "dandiset_metadata",
     "get_json",
     "get_object_bytes",
@@ -46,8 +52,11 @@ BUCKET = "dandiarchive"
 REGION = "us-east-2"
 PUBLIC_BASE_URL = f"https://{BUCKET}.s3.amazonaws.com"
 
+DANDISETS_PREFIX = "dandisets/"
 DANDISET_MANIFEST_KEY = "dandisets/{dandiset_id}/{version}/dandiset.jsonld"
 ASSETS_MANIFEST_KEY = "dandisets/{dandiset_id}/{version}/assets.jsonld"
+#: What marks a key as an assets manifest, for listing them without formatting a version in.
+ASSETS_MANIFEST_SUFFIX = "/assets.jsonld"
 
 #: Error codes that mean "this object is not readable", rather than "the run has gone wrong".
 ABSENT_ERROR_CODES = ("AccessDenied", "NoSuchKey", "404")
@@ -121,6 +130,74 @@ def zarr_key(content_id: str, /) -> str:
 def dandiset_metadata(client, dandiset_id: str, /, *, version: str = "draft") -> dict | None:
     """Read a Dandiset's `dandiset.jsonld` metadata, or `None` if it is not readable."""
     return get_json(client, DANDISET_MANIFEST_KEY.format(dandiset_id=dandiset_id, version=version))
+
+
+def dandiset_ids(client, /) -> typing.Iterator[str]:
+    """Yield every Dandiset ID under `dandisets/`, in lexicographic (S3 listing) order.
+
+    The bucket listing rather than the REST API, for the same reason `dandiset_created` reads S3:
+    the API's listing endpoint omits some live Dandisets, so a listing-based pass loses them
+    silently. Every Dandiset that has ever been published has a folder here.
+    """
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=BUCKET, Prefix=DANDISETS_PREFIX, Delimiter="/"):
+        for entry in page.get("CommonPrefixes", []):
+            yield entry["Prefix"].removeprefix(DANDISETS_PREFIX).rstrip("/")
+
+
+def asset_manifest_keys(client, /, *, dandiset_id: str | None = None) -> typing.Iterator[str]:
+    """Yield every `assets.jsonld` key, across every version of every Dandiset.
+
+    Every version, not only `draft`: an asset that a draft has since dropped is still part of the
+    published version that holds it, so a cache describing what the archive contains has to see
+    them all. Pass `dandiset_id` to walk one Dandiset instead of the whole bucket.
+    """
+    prefix = DANDISETS_PREFIX if dandiset_id is None else f"{DANDISETS_PREFIX}{dandiset_id}/"
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=BUCKET, Prefix=prefix):
+        for entry in page.get("Contents", []):
+            if entry["Key"].endswith(ASSETS_MANIFEST_SUFFIX):
+                yield entry["Key"]
+
+
+def dandiset_assets(client, key_or_id: str, /, *, version: str = "draft") -> list | None:
+    """Read an assets manifest as its list of asset entries, or `None` when it is not readable.
+
+    Takes either a full manifest key, as `asset_manifest_keys` yields, or a Dandiset ID, in which
+    case `version` selects which manifest to read.
+
+    A manifest that is not a JSON array raises rather than being read as one. The count of a
+    mapping is its number of keys, which a caller counting assets would otherwise publish as an
+    asset count without noticing the archive's layout had changed.
+    """
+    key = (
+        key_or_id
+        if key_or_id.endswith(ASSETS_MANIFEST_SUFFIX)
+        else ASSETS_MANIFEST_KEY.format(dandiset_id=key_or_id, version=version)
+    )
+    assets = get_json(client, key)
+    if assets is None:
+        return None
+    if not isinstance(assets, list):
+        message = (
+            f"The manifest `{key}` is not a JSON array of assets. "
+            "The DANDI archive's manifest layout may have changed."
+        )
+        raise ValueError(message)
+    return assets
+
+
+def content_id_from_content_urls(content_urls: list[str], /) -> str:
+    """The content ID an asset entry's `contentUrl` list points at.
+
+    The second URL is the S3 download URL, and its shape depends on the layout: an HDF5 asset is
+    a single blob at `.../blobs/<a>/<b>/<content_id>`, so the ID is the last segment, while a Zarr
+    asset is a directory store at `.../zarr/<content_id>/`, so the ID is the second to last.
+    Reading the wrong segment does not fail, it silently labels every Zarr asset with a filename,
+    which is why this is one function rather than a line copied into each cache.
+    """
+    s3_download_url = content_urls[1]
+    return s3_download_url.split("/")[-1] if "blobs" in s3_download_url else s3_download_url.split("/")[-2]
 
 
 def dandiset_created(client, dandiset_id: str, /, *, version: str = "draft") -> datetime.datetime | None:

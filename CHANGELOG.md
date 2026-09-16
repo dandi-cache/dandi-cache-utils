@@ -4,6 +4,13 @@
 
 ### 🚀 Enhancement
 
+- `s3` gained `dandiset_ids`, `asset_manifest_keys`, `dandiset_assets` and `content_id_from_content_urls`, the four things every cache that reads the archive's manifests had its own copy of.
+  `asset_manifest_keys` walks every version rather than only `draft`, because an asset a draft has since dropped is still part of the published version holding it ([#13](https://github.com/dandi-cache/dandi-cache-utils/pull/13)).
+- `content_id_from_content_urls` is one function rather than a line each cache repeats, because the rule is not obvious and failing it is silent.
+  An HDF5 asset's ID is the last segment of its S3 URL and a Zarr asset's is the second to last, so reading the wrong one labels every Zarr asset with a filename rather than raising ([#13](https://github.com/dandi-cache/dandi-cache-utils/pull/13)).
+- `dandiset_assets` raises when a manifest is not a JSON array instead of returning it.
+  A caller counting assets would otherwise publish a mapping's key count as an asset count and never notice the archive's layout had changed ([#13](https://github.com/dandi-cache/dandi-cache-utils/pull/13)).
+
 - `nwb.walk_structure` takes a `links` policy, because an HDF5 file with a soft link is two different trees and the `valid-nwb-file-to-*` caches were split between them.
   `LINKS_SKIPPED` walks the hard-link object tree, exactly as `h5py.Group.visititems` does, which is what the published values were computed with; `LINKS_FOLLOWED` walks the hierarchy as named, guarding cycles by object address, which is what the out-degree and cophenetic caches always did.
   Half of the archive's NWB files contain a soft link -- `/acquisition/<series>/imaging_plane` routinely points at `/general/optophysiology` -- so this is the difference between migrating a cache and rewriting tens of thousands of its published numbers ([#12](https://github.com/dandi-cache/dandi-cache-utils/pull/12)).
