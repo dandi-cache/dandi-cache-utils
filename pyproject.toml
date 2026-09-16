@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dandi-cache-utils"
-version = "0.1.6"
+version = "0.1.7"
 description = "The shared operations, orchestration, and CI used by every DANDI Cache."
 readme = "README.md"
 # The container runs 3.13, but the config module is also imported by the CI runner's system
@@ -36,7 +36,9 @@ all = ["dandi-cache-utils[s3,archive,nwb]"]
 # the library with nothing to test it against but a real hierarchy: its whole job is to reproduce
 # what these two report about a file. They are the light end of the NWB stack, and none of the rest
 # of it (`pynwb`, `nwbinspector`, `dandi`) is needed to build one.
-test = ["bidsschematools", "h5py", "pytest", "zarr<3"]
+# `boto3` brings `botocore.exceptions`, which the archive readers catch by error code. A stub
+# client covers the rest, so this is the only part of the S3 stack the tests need.
+test = ["bidsschematools", "boto3", "h5py", "pytest", "zarr<3"]
 
 [project.scripts]
 dandi-cache = "dandi_cache_utils._cli:dandi_cache_cli"
