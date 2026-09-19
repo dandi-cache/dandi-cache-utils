@@ -24,9 +24,17 @@ extensions = [
 # Markdown on GitHub as well as rendering here.
 myst_enable_extensions = ["colon_fence"]
 
-# A `README.md` anywhere under `docs/` is plain GitHub Markdown meant to be read in the repository,
-# not a page of this site, so it is excluded rather than left to warn about missing from a toctree.
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "**/README.md", "requirements.txt"]
+# `healthstatus-review/` is dated audits of the whole organization, plain GitHub Markdown meant to
+# be read in the repository rather than pages of this site. Excluding the directory keeps each new
+# review from warning about missing from a toctree, which would fail the build under `-W`.
+exclude_patterns = [
+    "_build",
+    "Thumbs.db",
+    ".DS_Store",
+    "README.md",
+    "healthstatus-review/**",
+    "requirements.txt",
+]
 
 autosummary_generate = True
 autodoc_default_options = {
