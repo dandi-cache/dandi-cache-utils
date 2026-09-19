@@ -15,7 +15,6 @@ It is vendored through GHCR container images: each cache's runtime image is buil
 - **Moving an existing cache onto this?** [Migrating an existing cache](migration/index.md), one repository at a time.
 - **Wondering why this exists?** [What was duplicated](duplication/index.md) is the analysis of the six repositories that prompted it.
 - **Writing an operation?** [A worked example](examples/index.md) is a real cache converted end to end, and the [API reference](api/index.rst) has the rest.
-- **Wondering where the organization stands?** [Ecosystem health review](healthstatus-review/index.md) is a point-in-time audit of all twenty repositories, and what to fix first.
 
 ```{toctree}
 :maxdepth: 2
@@ -27,6 +26,5 @@ usage/index
 examples/index
 migration/index
 development/index
-healthstatus-review/index
 api/index
 ```

@@ -24,7 +24,9 @@ extensions = [
 # Markdown on GitHub as well as rendering here.
 myst_enable_extensions = ["colon_fence"]
 
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "requirements.txt"]
+# A `README.md` anywhere under `docs/` is plain GitHub Markdown meant to be read in the repository,
+# not a page of this site, so it is excluded rather than left to warn about missing from a toctree.
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "**/README.md", "requirements.txt"]
 
 autosummary_generate = True
 autodoc_default_options = {
