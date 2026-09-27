@@ -19,12 +19,6 @@ from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
 TESTING_FILE_PREFIX = "testing_"
 
-# What `--testing` processes when an operation declares no `testing_limit` of its own: enough to
-# exercise the real processing logic end to end -- the container build, the provenance record, the
-# network calls -- and few enough to be fast. A cache whose items are heavier, or lighter, than
-# that assumes should say so in its `cache.toml` rather than live with this number.
-TESTING_LIMIT = 10
-
 
 @dataclasses.dataclass(frozen=True)
 class CacheDataset:
@@ -68,12 +62,14 @@ class CacheDataset:
         cache: it simply advances the frontier by that much and leaves the rest for the next run.
         Truncating what is published is a different operation, and not one any cache wants.
 
-        `--testing` wins over everything, because a smoke run is meant to be small and fast
-        whatever the cache's ordinary batch size is.
+        Under `--testing` an operation's `testing_limit` wins over everything, because a smoke run
+        is meant to be small and fast whatever the cache's ordinary batch size is. Both numbers
+        come from `cache.toml` and nowhere else: an operation that declares no `testing_limit`
+        simply runs its ordinary batch, and `--testing` then changes only where it writes.
         """
         declared = self.config.operation(self.operation)
-        if self.testing:
-            return declared.testing_limit if declared.testing_limit is not None else TESTING_LIMIT
+        if self.testing and declared.testing_limit is not None:
+            return declared.testing_limit
         return override if override is not None else declared.limit
 
     @property

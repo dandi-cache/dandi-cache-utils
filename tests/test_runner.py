@@ -93,11 +93,28 @@ def test_the_limit_is_resolved_against_the_operation_being_run(tmp_path):
 
 @pytest.mark.ai_generated
 def test_a_cache_with_no_declared_limit_processes_everything(tmp_path):
+    """Nothing declared means nothing to meter, and `--testing` then changes only where it writes.
+
+    There is deliberately no library-side default to fall back on: the numbers live in
+    `cache.toml`, so a cache that states none gets none rather than one it never chose.
+    """
     cache_config = dandi_cache.parse_config({"cache": {"name": "my-cache"}}, directory=tmp_path)
     dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
 
     assert dataset.limit() is None
-    assert dataclasses.replace(dataset, testing=True).limit() == 10
+    assert dataclasses.replace(dataset, testing=True).limit() is None
+
+
+@pytest.mark.ai_generated
+def test_testing_without_a_testing_limit_runs_the_ordinary_batch(tmp_path):
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache"}, "operations": {"update": {"limit": 500}}},
+        directory=tmp_path,
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path, testing=True)
+
+    assert dataset.limit() == 500
+    assert dataset.limit(50) == 50
 
 
 @pytest.mark.ai_generated

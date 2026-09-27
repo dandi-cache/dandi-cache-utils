@@ -73,7 +73,7 @@ label = "Refresh"    # `script` defaults to code/refresh.py
 | `script` | `code/<name>.py` | The entry point this operation runs. |
 | `label` | the capitalized `name` | How the operation is named in logs and commit messages. |
 | `limit` | none | How many items one run works through. |
-| `testing_limit` | `10` | What `--testing` uses instead. Must not exceed `limit`. |
+| `testing_limit` | none | What `--testing` uses instead. Must not exceed `limit`. Without one, `--testing` runs the ordinary batch and changes only where it writes. |
 
 #### What a limit means
 

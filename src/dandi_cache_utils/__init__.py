@@ -41,7 +41,7 @@ from ._config import (
     parse_config,
     read_config,
 )
-from ._dataset import TESTING_LIMIT, CacheDataset
+from ._dataset import CacheDataset
 from ._jsonl import (
     compress,
     compress_derivatives,
@@ -79,7 +79,6 @@ __all__ = [
     "RECORD",
     "SKIP",
     "StagedErrorLog",
-    "TESTING_LIMIT",
     "__version__",
     "api",
     "as_shell",

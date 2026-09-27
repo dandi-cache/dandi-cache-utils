@@ -14,7 +14,8 @@
 
 - Every operation declares how much work one run does. `[operations.<name>] limit` is how much of the backlog a scheduled run gets through, and the new `testing_limit` is the smallest batch that still exercises that operation end to end.
   A testing run was previously a single organization-wide `TESTING_LIMIT = 10` whatever the cache did, which is far too many items for a cache that streams an NWB file each time and too few to exercise one that reads a manifest.
-  `TESTING_LIMIT` remains the default for an operation that declares none, and a `testing_limit` above the operation's own `limit` is rejected as a configuration mistake.
+  `TESTING_LIMIT` is gone with it: both numbers are read from `cache.toml` and nowhere else. An operation that declares no `testing_limit` runs its ordinary batch under `--testing`, which then changes only where it writes.
+  A `testing_limit` above the operation's own `limit` is rejected as a configuration mistake.
 - `CacheDataset` knows which operation is being run and resolves the batch cap for it: `dataset.limit(arguments.limit)` replaces `effective_limit(testing=dataset.testing, limit=arguments.limit)` at every entry point.
   The declaration in `cache.toml` is then the only place a cache's batch size is written, rather than something each entry point reassembles.
 - `dandi-cache check-operations` now also holds every keyword a script passes to a library function against that function's signature, read with `inspect.signature` at check time.

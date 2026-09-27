@@ -20,7 +20,7 @@ import pathlib
 import typing
 
 from ._config import DEFAULT_OPERATION, CacheConfig, load_config
-from ._dataset import TESTING_LIMIT, CacheDataset
+from ._dataset import CacheDataset
 from ._logs import logger
 
 BASE_DIRECTORY_HELP = (
@@ -28,9 +28,9 @@ BASE_DIRECTORY_HELP = (
     "mounted dataset path when run inside the pipeline container; defaults to the repository root."
 )
 TESTING_HELP = (
-    "Run in testing mode: process the operation's `testing_limit` items "
-    f"({TESTING_LIMIT} if it declares none) and write `testing_`-prefixed files instead of the "
-    "real cache, leaving it untouched. Omit for an ordinary run."
+    "Run in testing mode: process the operation's `testing_limit` items, as `cache.toml` declares "
+    "it, and write `testing_`-prefixed files instead of the real cache, leaving it untouched. "
+    "Omit for an ordinary run."
 )
 LIMIT_HELP = (
     "Cap the number of items this run works through, overriding the operation's declared `limit`. "
