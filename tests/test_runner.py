@@ -62,22 +62,6 @@ def test_stale_selection_sizes_the_batch_from_a_fraction():
 
 
 @pytest.mark.ai_generated
-def test_testing_always_wins_on_batch_size():
-    assert dandi_cache.effective_limit(testing=True, limit=5000, default=500) == 10
-    assert dandi_cache.effective_limit(testing=False, limit=5000, default=500) == 5000
-    assert dandi_cache.effective_limit(testing=False, limit=None, default=500) == 500
-    assert dandi_cache.effective_limit(testing=False, limit=None, default=None) is None
-
-
-@pytest.mark.ai_generated
-def test_an_operation_can_declare_its_own_testing_batch():
-    assert dandi_cache.effective_limit(testing=True, limit=5000, testing_limit=2) == 2
-    # An operation that declares none falls back to the organization-wide default.
-    assert dandi_cache.effective_limit(testing=True, limit=5000, testing_limit=None) == 10
-    assert dandi_cache.effective_limit(testing=False, limit=5000, testing_limit=2) == 5000
-
-
-@pytest.mark.ai_generated
 def test_the_dataset_resolves_the_limit_it_was_declared_with(tmp_path):
     cache_config = dandi_cache.parse_config(
         {"cache": {"name": "my-cache"}, "operations": {"update": {"limit": 500, "testing_limit": 2}}},

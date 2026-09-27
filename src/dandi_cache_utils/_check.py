@@ -13,6 +13,7 @@ import, so the attribute has to be resolved from the syntax tree instead.
 
 import ast
 import importlib
+import inspect
 import pathlib
 import typing
 
@@ -20,20 +21,6 @@ from . import _config
 
 #: The distribution's own name, and what a cache conventionally aliases it to.
 PACKAGE = "dandi_cache_utils"
-
-#: Keyword arguments whose absence is the point rather than an oversight, and why.
-#:
-#: Removing a parameter makes a stale call a `TypeError` -- but only when the call is reached,
-#: which for these caches is the next scheduled run against the real `derivatives` branch. Naming
-#: them here moves that to the image build, with an error that says what to do instead.
-REMOVED_KEYWORDS = {
-    "run_full_rebuild": {
-        "limit": (
-            "a rebuild publishes the complete cache, so a limit here would truncate it; bound the "
-            "work inside `build` instead, using `dataset.limit(arguments.limit)`"
-        ),
-    },
-}
 
 
 def _aliases(tree: ast.Module, /) -> set[str]:
@@ -81,34 +68,64 @@ def referenced_names(source: str, /) -> set[tuple[str, ...]]:
     }
 
 
-def _called_name(node: ast.Call, /) -> str | None:
-    """The bare name a call spells, whether it is `f(...)` or `library.f(...)`."""
-    if isinstance(node.func, ast.Name):
-        return node.func.id
-    if isinstance(node.func, ast.Attribute):
-        return node.func.attr
-    return None
+def _accepted_keywords(target: typing.Any, /) -> set[str] | None:
+    """The keyword names a callable accepts, or `None` when it accepts anything (or is unreadable)."""
+    try:
+        signature = inspect.signature(target)
+    except (TypeError, ValueError):  # A builtin or C callable has no signature to read.
+        return None
+
+    parameters = signature.parameters.values()
+    if any(parameter.kind is parameter.VAR_KEYWORD for parameter in parameters):
+        return None
+    return {
+        parameter.name
+        for parameter in parameters
+        if parameter.kind in (parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY)
+    }
 
 
-def removed_keywords(source: str, /) -> list[str]:
-    """Calls in the source that pass a keyword argument the library no longer accepts.
+def unaccepted_keywords(source: str, /, *, library: typing.Any = None) -> list[str]:
+    """Calls on a library function that pass a keyword its signature does not accept.
 
-    Matching is on the bare function name, so a cache that happened to define its own
-    `run_full_rebuild` taking a `limit` would be reported too. That is the safe direction to be
-    wrong in, and no cache does.
+    Read from the installed signatures rather than from a list of known removals, so there is
+    nothing to keep in step: a parameter this library drops, renames or never had is reported the
+    same way, and a misspelled keyword is caught as well.
+
+    A stale keyword is already a `TypeError` -- but only once the call is reached, which for these
+    caches is the next scheduled run against the real `derivatives` branch. Reading it from the
+    syntax tree is what moves that to the image build.
     """
+    if library is None:
+        library = importlib.import_module(PACKAGE)
+
+    tree = ast.parse(source)
+    aliases = _aliases(tree)
     problems = []
-    for node in ast.walk(ast.parse(source)):
-        if not isinstance(node, ast.Call):
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
             continue
-        removed = REMOVED_KEYWORDS.get(_called_name(node) or "")
-        if not removed:
+        chain = _attribute_chain(node.func)
+        if not chain or chain[0] not in aliases:
             continue
+
+        target = library
+        for part in chain[1:]:
+            target = getattr(target, part, None)
+        # A name the library does not offer at all is `unresolved_names`' to report, not this one.
+        if target is None or not callable(target):
+            continue
+
+        accepted = _accepted_keywords(target)
+        if accepted is None:
+            continue
+
+        dotted = ".".join(chain[1:])
         problems.extend(
-            f"line {node.lineno}: `{_called_name(node)}(..., {keyword.arg}=...)` is no longer "
-            f"accepted: {removed[keyword.arg]}."
+            f"line {node.lineno}: `{dotted}()` does not accept `{keyword.arg}`."
             for keyword in node.keywords
-            if keyword.arg in removed
+            # `**kwargs` at the call site has `arg` of `None`; nothing can be said about it here.
+            if keyword.arg is not None and keyword.arg not in accepted
         )
     return sorted(problems)
 
@@ -133,8 +150,8 @@ def check_operations(config: _config.CacheConfig, /, *, library: typing.Any = No
     """Check every operation script this cache declares; returns one message per problem found.
 
     Four things, in the order a mistake reaches them: the script exists, it parses, every library
-    name it uses is one the installed library actually has, and no call passes an argument the
-    library has deliberately stopped accepting.
+    name it uses is one the installed library actually has, and every keyword it passes to one is
+    one that name's signature accepts.
     """
     problems = []
     directory = config.directory or pathlib.Path.cwd()
@@ -155,5 +172,5 @@ def check_operations(config: _config.CacheConfig, /, *, library: typing.Any = No
             f"{operation.script}: uses `{PACKAGE}.{missing_name}`, which this library does not offer."
             for missing_name in missing
         )
-        problems.extend(f"{operation.script}: {problem}" for problem in removed_keywords(source))
+        problems.extend(f"{operation.script}: {problem}" for problem in unaccepted_keywords(source, library=library))
     return problems

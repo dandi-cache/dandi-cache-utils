@@ -97,7 +97,7 @@ dandi_cache.run_full_rebuild(dataset, build=build)
 A cache that genuinely has nothing to meter — a filter or a join over inputs already in hand, which completes in full every run — declares no `limit` and says so in a comment.
 For those, `--testing` changes only where the output is written.
 
-`dataset.limit(arguments.limit)` resolves the cap for the run in hand: the operation's `testing_limit` under `--testing`, otherwise an explicit `--limit`, otherwise the declared `limit`.
+`dataset.limit(arguments.limit)` resolves the cap for the run in hand, and is the only thing that does: the operation's `testing_limit` under `--testing`, otherwise an explicit `--limit`, otherwise the declared `limit`.
 
 ### `[description]`
 

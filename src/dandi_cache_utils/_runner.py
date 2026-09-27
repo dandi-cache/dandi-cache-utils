@@ -29,7 +29,7 @@ import math
 import time
 import typing
 
-from ._dataset import TESTING_LIMIT, CacheDataset
+from ._dataset import CacheDataset
 from ._logs import StagedErrorLog, logger, peak_memory_mib
 
 SKIP = "skip"
@@ -90,27 +90,6 @@ def select_stale(
     if limit is None and fraction_per_run is not None:
         limit = max(1, math.ceil(len(ordered) * fraction_per_run)) if ordered else 0
     return ordered if limit is None else list(itertools.islice(ordered, limit))
-
-
-def effective_limit(
-    *,
-    testing: bool,
-    limit: int | None,
-    default: int | None = None,
-    testing_limit: int | None = None,
-) -> int | None:
-    """Resolve the batch cap from the testing flag, an explicit limit, and the configured defaults.
-
-    Testing always wins: a smoke run is meant to be small and fast regardless of what the cache's
-    ordinary batch size is. `testing_limit` is the smallest batch that still exercises this
-    particular operation, and falls back to `TESTING_LIMIT` for an operation that declares none.
-
-    Prefer :meth:`~dandi_cache_utils.CacheDataset.limit`, which reads both defaults out of
-    `cache.toml` rather than asking the caller to pass them in.
-    """
-    if testing:
-        return testing_limit if testing_limit is not None else TESTING_LIMIT
-    return limit if limit is not None else default
 
 
 def run_incremental_update(
