@@ -31,7 +31,10 @@ SOURCE = textwrap.dedent("""
 @pytest.fixture
 def library():
     """A stand-in for the installed library, so a test says what it offers rather than guessing."""
-    return types.SimpleNamespace(s3=types.SimpleNamespace(anonymous_client=object(), dandiset_ids=object()))
+    return types.SimpleNamespace(
+        run_full_rebuild=object(),
+        s3=types.SimpleNamespace(anonymous_client=object(), dandiset_ids=object()),
+    )
 
 
 def test_the_alias_is_read_from_the_import(library):
@@ -104,3 +107,22 @@ def test_a_missing_library_name_is_reported_with_its_script(tmp_path, library):
     (problem,) = _check.check_operations(config, library=library)
     assert problem.startswith("code/update.py:")
     assert "dandiset_identifiers" in problem
+
+
+def test_a_rebuild_that_would_truncate_its_output_is_reported(tmp_path, library):
+    """`run_full_rebuild(..., limit=...)` is the one call that used to delete a cache quietly."""
+    source = "import dandi_cache_utils as dandi_cache\n\ndandi_cache.run_full_rebuild(None, build=list, limit=5)\n"
+    config = write_cache(tmp_path, source)
+
+    (problem,) = _check.check_operations(config, library=library)
+
+    assert problem.startswith("code/update.py:")
+    assert "no longer accepted" in problem
+    assert "truncate" in problem
+
+
+def test_a_rebuild_without_a_limit_reports_nothing(tmp_path, library):
+    source = "import dandi_cache_utils as dandi_cache\n\ndandi_cache.run_full_rebuild(None, build=list)\n"
+    config = write_cache(tmp_path, source)
+
+    assert _check.check_operations(config, library=library) == []

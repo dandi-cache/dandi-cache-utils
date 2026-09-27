@@ -19,7 +19,7 @@ A cache's `code/update.py` is then only the part that is actually unique to it::
             dataset,
             candidates=[content_id for content_id, valid in validity.items() if valid is True],
             process=count,
-            limit=dandi_cache.effective_limit(testing=dataset.testing, limit=arguments.limit),
+            limit=dataset.limit(arguments.limit),
         )
 
 Everything else -- the logging, the batch selection, the failure policy, the output paths, the

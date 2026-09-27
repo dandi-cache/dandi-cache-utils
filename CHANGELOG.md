@@ -2,7 +2,21 @@
 
 ## Upcoming
 
+### 💥 Breaking
+
+- `run_full_rebuild` no longer takes a `limit`, because a limit bounds the work a run does and never the records it publishes.
+  It used to `islice` the records on their way out, so a rebuild cache that declared `limit = 500` would publish 500 entries and delete the rest of itself from every consumer -- and six of the organization's caches reached that code path by passing their configured limit straight through.
+  A rebuild cache that has real work to bound now bounds it inside `build`, on what it fetches, and still publishes everything it knows.
+  `dandi-cache check-operations` reports a surviving `run_full_rebuild(..., limit=...)` at image-build time rather than leaving it to raise at the next scheduled run.
+
 ### 🚀 Enhancement
+
+- Every operation declares how much work one run does. `[operations.<name>] limit` is how much of the backlog a scheduled run gets through, and the new `testing_limit` is the smallest batch that still exercises that operation end to end.
+  A testing run was previously a single organization-wide `TESTING_LIMIT = 10` whatever the cache did, which is far too many items for a cache that streams an NWB file each time and too few to exercise one that reads a manifest.
+  `TESTING_LIMIT` remains the default for an operation that declares none, and a `testing_limit` above the operation's own `limit` is rejected as a configuration mistake.
+- `CacheDataset` knows which operation is being run and resolves the batch cap for it: `dataset.limit(arguments.limit)` replaces `effective_limit(testing=dataset.testing, limit=arguments.limit)` at every entry point.
+  The declaration in `cache.toml` is then the only place a cache's batch size is written, rather than something each entry point reassembles.
+  `effective_limit` is unchanged for callers that pass the pieces themselves, and gained a `testing_limit` argument.
 
 - Added `dandi-cache check-operations`, which holds a cache's own operation scripts to the library its image carries.
   The image build proved the image and the `cache.toml` and never the one file the cache itself contributes, so a script naming a function the installed library does not have passed every check and failed at the next scheduled run, on the real `derivatives` branch.

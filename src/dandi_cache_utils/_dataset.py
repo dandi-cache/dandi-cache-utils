@@ -14,13 +14,15 @@ import dataclasses
 import pathlib
 
 from . import _jsonl
-from ._config import CacheConfig, InputCache, load_config
+from ._config import DEFAULT_OPERATION, CacheConfig, InputCache, load_config
 from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
 TESTING_FILE_PREFIX = "testing_"
 
-# A testing run processes this many items: enough to exercise the real processing logic end to
-# end -- the container build, the provenance record, the network calls -- and few enough to be fast.
+# What `--testing` processes when an operation declares no `testing_limit` of its own: enough to
+# exercise the real processing logic end to end -- the container build, the provenance record, the
+# network calls -- and few enough to be fast. A cache whose items are heavier, or lighter, than
+# that assumes should say so in its `cache.toml` rather than live with this number.
 TESTING_LIMIT = 10
 
 
@@ -31,6 +33,8 @@ class CacheDataset:
     config: CacheConfig
     base_directory: pathlib.Path
     testing: bool = False
+    #: Which declared operation this run is, which is what `limit` is resolved against.
+    operation: str = DEFAULT_OPERATION
 
     @classmethod
     def open(
@@ -40,13 +44,37 @@ class CacheDataset:
         *,
         testing: bool = False,
         config: CacheConfig | None = None,
+        operation: str = DEFAULT_OPERATION,
     ) -> "CacheDataset":
         """Open the dataset at `base_directory`, loading `cache.toml` if one was not supplied."""
         return cls(
             config=config if config is not None else load_config(),
             base_directory=pathlib.Path(base_directory),
             testing=testing,
+            operation=operation,
         )
+
+    def limit(self, override: int | None = None, /) -> int | None:
+        """How many items this run should work through.
+
+        Every cache meters itself: `[operations.<name>] limit` in `cache.toml` is how much of the
+        backlog one scheduled run gets through, and running often enough is what clears it. This
+        resolves that declaration against the run in hand, so an entry point asks one question
+        rather than assembling the answer from three places::
+
+            limit = dataset.limit(arguments.limit)
+
+        The limit bounds *work*, never output. A run that is capped still publishes the complete
+        cache: it simply advances the frontier by that much and leaves the rest for the next run.
+        Truncating what is published is a different operation, and not one any cache wants.
+
+        `--testing` wins over everything, because a smoke run is meant to be small and fast
+        whatever the cache's ordinary batch size is.
+        """
+        declared = self.config.operation(self.operation)
+        if self.testing:
+            return declared.testing_limit if declared.testing_limit is not None else TESTING_LIMIT
+        return override if override is not None else declared.limit
 
     @property
     def derivatives_directory(self) -> pathlib.Path:

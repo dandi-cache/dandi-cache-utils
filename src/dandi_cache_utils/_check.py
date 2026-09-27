@@ -21,6 +21,20 @@ from . import _config
 #: The distribution's own name, and what a cache conventionally aliases it to.
 PACKAGE = "dandi_cache_utils"
 
+#: Keyword arguments whose absence is the point rather than an oversight, and why.
+#:
+#: Removing a parameter makes a stale call a `TypeError` -- but only when the call is reached,
+#: which for these caches is the next scheduled run against the real `derivatives` branch. Naming
+#: them here moves that to the image build, with an error that says what to do instead.
+REMOVED_KEYWORDS = {
+    "run_full_rebuild": {
+        "limit": (
+            "a rebuild publishes the complete cache, so a limit here would truncate it; bound the "
+            "work inside `build` instead, using `dataset.limit(arguments.limit)`"
+        ),
+    },
+}
+
 
 def _aliases(tree: ast.Module, /) -> set[str]:
     """The names this module refers to the library by, whatever it imported it as."""
@@ -67,6 +81,38 @@ def referenced_names(source: str, /) -> set[tuple[str, ...]]:
     }
 
 
+def _called_name(node: ast.Call, /) -> str | None:
+    """The bare name a call spells, whether it is `f(...)` or `library.f(...)`."""
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return None
+
+
+def removed_keywords(source: str, /) -> list[str]:
+    """Calls in the source that pass a keyword argument the library no longer accepts.
+
+    Matching is on the bare function name, so a cache that happened to define its own
+    `run_full_rebuild` taking a `limit` would be reported too. That is the safe direction to be
+    wrong in, and no cache does.
+    """
+    problems = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        removed = REMOVED_KEYWORDS.get(_called_name(node) or "")
+        if not removed:
+            continue
+        problems.extend(
+            f"line {node.lineno}: `{_called_name(node)}(..., {keyword.arg}=...)` is no longer "
+            f"accepted: {removed[keyword.arg]}."
+            for keyword in node.keywords
+            if keyword.arg in removed
+        )
+    return sorted(problems)
+
+
 def unresolved_names(source: str, /, *, library: typing.Any = None) -> list[str]:
     """The library names the source refers to that the installed library does not offer."""
     if library is None:
@@ -86,8 +132,9 @@ def unresolved_names(source: str, /, *, library: typing.Any = None) -> list[str]
 def check_operations(config: _config.CacheConfig, /, *, library: typing.Any = None) -> list[str]:
     """Check every operation script this cache declares; returns one message per problem found.
 
-    Three things, in the order a mistake reaches them: the script exists, it parses, and every
-    library name it uses is one the installed library actually has.
+    Four things, in the order a mistake reaches them: the script exists, it parses, every library
+    name it uses is one the installed library actually has, and no call passes an argument the
+    library has deliberately stopped accepting.
     """
     problems = []
     directory = config.directory or pathlib.Path.cwd()
@@ -108,4 +155,5 @@ def check_operations(config: _config.CacheConfig, /, *, library: typing.Any = No
             f"{operation.script}: uses `{PACKAGE}.{missing_name}`, which this library does not offer."
             for missing_name in missing
         )
+        problems.extend(f"{operation.script}: {problem}" for problem in removed_keywords(source))
     return problems

@@ -59,12 +59,18 @@ class InputCache:
 
 @dataclasses.dataclass(frozen=True)
 class Operation:
-    """One entry point of a cache: the ordinary `update`, plus any extras such as `refresh`."""
+    """One entry point of a cache: the ordinary `update`, plus any extras such as `refresh`.
+
+    Both limits bound how much work one run does; neither bounds what the run publishes. `limit`
+    is how much a scheduled run gets through, and `testing_limit` is the smallest batch that still
+    exercises the operation end to end, for `--testing`.
+    """
 
     name: str
     script: str
     label: str
     limit: int | None
+    testing_limit: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -136,18 +142,36 @@ def _parse_input(raw: dict, /) -> InputCache:
     )
 
 
+def _parse_limit(entry: dict, key: str, /, *, operation: str) -> int | None:
+    """One of an operation's two batch caps, validated as a positive integer if it is given at all."""
+    value = entry.get(key)
+    if value is None:
+        return None
+    # `isinstance(True, int)` is true in Python, and a `limit = true` is a mistake worth naming.
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"Operation {operation!r} has {key} {value!r}; expected a positive integer or no {key}.")
+    return value
+
+
 def _parse_operations(raw: dict, /, *, cache_name: str) -> dict[str, Operation]:
     operations = {}
     for name, entry in raw.items():
         entry = _require_mapping(entry, where=f"operations.{name}")
-        limit = entry.get("limit")
-        if limit is not None and (not isinstance(limit, int) or limit <= 0):
-            raise ValueError(f"Operation {name!r} has limit {limit!r}; expected a positive integer or no limit.")
+        limit = _parse_limit(entry, "limit", operation=name)
+        testing_limit = _parse_limit(entry, "testing_limit", operation=name)
+        # A testing run is meant to be the smallest batch that still exercises the operation, so a
+        # testing limit above the scheduled one is a configuration mistake rather than a preference.
+        if limit is not None and testing_limit is not None and testing_limit > limit:
+            raise ValueError(
+                f"Operation {name!r} has testing_limit {testing_limit} above its limit {limit}; "
+                "a testing run must not be larger than a scheduled one."
+            )
         operations[name] = Operation(
             name=name,
             script=entry.get("script", f"code/{name}.py"),
             label=entry.get("label", name.capitalize()),
             limit=limit,
+            testing_limit=testing_limit,
         )
 
     # Every cache can always be updated, even when it declares no `[operations]` table at all.

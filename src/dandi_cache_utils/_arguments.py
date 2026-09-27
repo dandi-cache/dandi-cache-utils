@@ -6,10 +6,13 @@ workflow and the shell script disagreeing about which applied. There is one spel
 
     --base-directory   where `sourcedata/`, `derivatives/` and `logs/` live
     --testing          process a handful of items and write `testing_`-prefixed outputs
-    --limit            cap a real run's batch, for caches too heavy to clear the backlog at once
+    --limit            cap this run's batch, overriding what `cache.toml` declares
 
-`--testing` and `--limit` compose rather than conflict: testing always wins on size, so a smoke
-run is small whatever the cache's ordinary batch size is.
+Neither flag is where a cache's batch size is decided. `[operations.<name>] limit` in `cache.toml`
+is, and `--limit` only overrides it for one run; `--testing` substitutes that operation's
+`testing_limit`, which is the smallest batch that still exercises it. The two compose rather than
+conflict: testing always wins on size, so a smoke run is small whatever the cache's ordinary batch
+size is.
 """
 
 import argparse
@@ -25,12 +28,14 @@ BASE_DIRECTORY_HELP = (
     "mounted dataset path when run inside the pipeline container; defaults to the repository root."
 )
 TESTING_HELP = (
-    f"Run in testing mode: process only the first {TESTING_LIMIT} items and write `testing_`-prefixed "
-    "files instead of the real cache, leaving it untouched. Omit for a complete update."
+    "Run in testing mode: process the operation's `testing_limit` items "
+    f"({TESTING_LIMIT} if it declares none) and write `testing_`-prefixed files instead of the "
+    "real cache, leaving it untouched. Omit for an ordinary run."
 )
 LIMIT_HELP = (
-    "Cap the number of new items processed in this run. Use for caches too heavy to clear their "
-    "backlog in a single run; successive runs then advance through it. Omit to process everything."
+    "Cap the number of items this run works through, overriding the operation's declared `limit`. "
+    "The cap bounds the work, not the output: the run still publishes the complete cache and "
+    "leaves the rest of the backlog for the next one."
 )
 
 
@@ -100,6 +105,7 @@ def open_dataset(
         arguments.base_directory,
         testing=getattr(arguments, "testing", False),
         config=config,
+        operation=operation,
     )
     log_file_path = dataset.start_logging(operation=operation)
     logger.info("Logging to %s.", log_file_path)

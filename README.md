@@ -39,7 +39,7 @@ def main():
         dataset,
         candidates=[content_id for content_id, valid in validity.items() if valid is True],
         process=count_groups,
-        limit=dandi_cache.effective_limit(testing=dataset.testing, limit=arguments.limit),
+        limit=dataset.limit(arguments.limit),
         on_failure=dandi_cache.SKIP,
     )
 ```
