@@ -49,23 +49,12 @@ class CacheDataset:
         )
 
     def limit(self, override: int | None = None, /) -> int | None:
-        """How many items this run should work through.
-
-        Every cache meters itself: `[operations.<name>] limit` in `cache.toml` is how much of the
-        backlog one scheduled run gets through, and running often enough is what clears it. This
-        resolves that declaration against the run in hand, so an entry point asks one question
-        rather than assembling the answer from three places::
+        """How many items this run should work through, as `cache.toml` declares it::
 
             limit = dataset.limit(arguments.limit)
 
-        The limit bounds *work*, never output. A run that is capped still publishes the complete
-        cache: it simply advances the frontier by that much and leaves the rest for the next run.
-        Truncating what is published is a different operation, and not one any cache wants.
-
-        Under `--testing` an operation's `testing_limit` wins over everything, because a smoke run
-        is meant to be small and fast whatever the cache's ordinary batch size is. Both numbers
-        come from `cache.toml` and nowhere else: an operation that declares no `testing_limit`
-        simply runs its ordinary batch, and `--testing` then changes only where it writes.
+        The operation's `testing_limit` under `--testing`, otherwise `override` (an explicit
+        `--limit`), otherwise the operation's `limit`. `None` means the run is not capped.
         """
         declared = self.config.operation(self.operation)
         if self.testing and declared.testing_limit is not None:

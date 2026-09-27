@@ -56,16 +56,12 @@ Nothing is then pinned, and the container must be able to reach the upstream sou
 
 ### `[operations]`
 
-`update` always exists and defaults to `code/update.py`.
-Declare another only when a cache genuinely has one — such as a `refresh` that re-assesses what it already recorded.
+`update` always exists and defaults to `code/update.py`; the example above declares its limits.
+Declare another only when a cache genuinely has one — such as a `refresh` that re-assesses what it already recorded:
 
 ```toml
-[operations.update]
-limit = 500          # how many items one scheduled run works through
-testing_limit = 2    # the smallest batch that still exercises the operation
-
 [operations.refresh]
-label = "Refresh"    # `script` defaults to code/refresh.py
+label = "Refresh"
 ```
 
 | Key | Default | Meaning |
@@ -233,8 +229,7 @@ That runs after every write of the cache itself, checkpoints included, so all of
 A cache that is a derivation of its inputs rather than an accumulation of per-item work -- a filter, a join, a reshaping -- uses {func}`~dandi_cache_utils.run_full_rebuild` instead.
 It takes the same `dataset`, builds the whole mapping in one pass, and has no frontier or failure policy to choose.
 
-It has no `limit` either, and that is deliberate: a limit bounds the work a run does, never the records it publishes, and there is nothing in a rebuild to bound.
-A rebuild cache that does bounded work -- reading manifests, fetching metadata -- applies its limit inside `build`, to what it fetches, and still publishes everything it knows.
+It takes no `limit`, deliberately: the `[operations]` section above covers why, and how a rebuild cache meters what it fetches instead.
 
 ## The workflows
 
