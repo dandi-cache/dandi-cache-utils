@@ -26,8 +26,8 @@ Tick an item off here when it lands, and note the pull request that closed it.
 
 | Item | Where | Status |
 |---|---|---|
-| `limit` truncates the published output of six full-rebuild caches | `run_full_rebuild`, six caches | fixed |
-| Four dispatch descriptions describe incremental behaviour on caches that truncate | sixteen cache `update.yml` files | fixed |
+| `limit` truncates the published output of six full-rebuild caches | `run_full_rebuild`, six caches | fixed, [#16](https://github.com/dandi-cache/dandi-cache-utils/pull/16) and the sixteen cache pull requests it lists |
+| Four dispatch descriptions describe incremental behaviour on caches that truncate | sixteen cache `update.yml` files | fixed, with the cache pull requests above |
 | `check-operations` and `dataset-description --check` never run when `code/` or `cache.toml` changes | build workflow path filter, template then sixteen caches | open |
 
 The truncation was not patched but removed: `run_full_rebuild` no longer takes a `limit` at all, so a rebuild cannot cap what it publishes.
