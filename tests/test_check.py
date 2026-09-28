@@ -30,8 +30,25 @@ SOURCE = textwrap.dedent("""
 
 @pytest.fixture
 def library():
-    """A stand-in for the installed library, so a test says what it offers rather than guessing."""
-    return types.SimpleNamespace(s3=types.SimpleNamespace(anonymous_client=object(), dandiset_ids=object()))
+    """A stand-in for the installed library, so a test says what it offers rather than guessing.
+
+    The callables carry real signatures rather than being bare sentinels, because the keyword
+    check reads them: a stub with no signature is a stub the check has nothing to say about.
+    """
+
+    def run_full_rebuild(dataset, /, *, build, output=None):
+        """The shape that matters here: no `limit`."""
+
+    def anonymous_client(*, max_pool_connections=10):
+        """"""
+
+    def dandiset_ids(client, /):
+        """"""
+
+    return types.SimpleNamespace(
+        run_full_rebuild=run_full_rebuild,
+        s3=types.SimpleNamespace(anonymous_client=anonymous_client, dandiset_ids=dandiset_ids),
+    )
 
 
 def test_the_alias_is_read_from_the_import(library):
@@ -104,3 +121,47 @@ def test_a_missing_library_name_is_reported_with_its_script(tmp_path, library):
     (problem,) = _check.check_operations(config, library=library)
     assert problem.startswith("code/update.py:")
     assert "dandiset_identifiers" in problem
+
+
+def test_a_rebuild_that_would_truncate_its_output_is_reported(tmp_path, library):
+    """`run_full_rebuild(..., limit=...)` is the call that used to delete a cache quietly."""
+    source = "import dandi_cache_utils as dandi_cache\n\ndandi_cache.run_full_rebuild(None, build=list, limit=5)\n"
+    config = write_cache(tmp_path, source)
+
+    (problem,) = _check.check_operations(config, library=library)
+
+    assert problem.startswith("code/update.py:")
+    assert "run_full_rebuild()" in problem
+    assert "limit" in problem
+
+
+def test_a_rebuild_without_a_limit_reports_nothing(tmp_path, library):
+    source = "import dandi_cache_utils as dandi_cache\n\ndandi_cache.run_full_rebuild(None, build=list)\n"
+    config = write_cache(tmp_path, source)
+
+    assert _check.check_operations(config, library=library) == []
+
+
+def test_the_check_is_read_from_the_signature_rather_than_a_list_of_removals(tmp_path, library):
+    """Nothing enumerates what the library dropped, so a typo is caught on the same footing.
+
+    This is the property worth keeping: a hand-maintained registry of removed parameters only
+    ever catches what someone remembered to add to it, and goes stale the moment it is not
+    updated. Reading `inspect.signature` cannot go stale.
+    """
+    source = "import dandi_cache_utils as dandi_cache\n\n" "dandi_cache.s3.anonymous_client(max_pool_connectons=16)\n"
+    config = write_cache(tmp_path, source)
+
+    (problem,) = _check.check_operations(config, library=library)
+
+    assert "s3.anonymous_client()" in problem
+    assert "max_pool_connectons" in problem
+
+
+def test_a_call_that_takes_arbitrary_keywords_is_left_alone(tmp_path, library):
+    """A `**kwargs` signature accepts anything, so there is nothing for the check to assert."""
+    library.flexible = lambda **kwargs: None
+    source = "import dandi_cache_utils as dandi_cache\n\ndandi_cache.flexible(whatever=1)\n"
+    config = write_cache(tmp_path, source)
+
+    assert _check.check_operations(config, library=library) == []

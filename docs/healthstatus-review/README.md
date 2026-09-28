@@ -26,17 +26,21 @@ Tick an item off here when it lands, and note the pull request that closed it.
 
 | Item | Where | Status |
 |---|---|---|
-| `limit` truncates the published output of six full-rebuild caches | five call sites, plus a guard in `run_full_rebuild` | open |
+| `limit` truncates the published output of six full-rebuild caches | `run_full_rebuild`, six caches | fixed, [#16](https://github.com/dandi-cache/dandi-cache-utils/pull/16) and the sixteen cache pull requests it lists |
+| Four dispatch descriptions describe incremental behaviour on caches that truncate | sixteen cache `update.yml` files | fixed, with the cache pull requests above |
 | `check-operations` and `dataset-description --check` never run when `code/` or `cache.toml` changes | build workflow path filter, template then sixteen caches | open |
-| Four dispatch descriptions describe incremental behaviour on caches that truncate | four cache `update.yml` files | open |
+
+The truncation was not patched but removed: `run_full_rebuild` no longer takes a `limit` at all, so a rebuild cannot cap what it publishes.
+That made a limit safe to require everywhere, which is now the rule — every operation declares how much work one scheduled run does, plus the `testing_limit` a smoke run uses, and `dandi-cache check-operations` reports a surviving `run_full_rebuild(..., limit=...)` at image-build time.
+Three of the six rebuild caches were rewired to bound what they *fetch*; one became accumulative; two are pure derivations of inputs already in hand, declare no limit, and say so.
 
 ### Fix systemically
 
 | Item | Where | Status |
 |---|---|---|
 | A shrink guard, so no rebuild can publish a drastically smaller cache unprompted | `run_full_rebuild` | open |
-| A test workflow | `dandi-cache-action` | open |
 | An error-log contract for the rebuild model, matching the incremental one | this library | open |
+| A test workflow | `dandi-cache-action` | open |
 | A shared helper for the six duplicated tree-metric `main()` bodies | this library | open |
 | Crons staggered by graph depth | sixteen cache `update.yml` files | open |
 | A versioned published contract between caches | `cache.toml` and the readers | open |

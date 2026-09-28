@@ -5,6 +5,7 @@ what a failure means, and whether testing mode can touch the real cache -- becau
 differences that caused real bugs.
 """
 
+import dataclasses
 import pathlib
 
 import pytest
@@ -61,11 +62,59 @@ def test_stale_selection_sizes_the_batch_from_a_fraction():
 
 
 @pytest.mark.ai_generated
-def test_testing_always_wins_on_batch_size():
-    assert dandi_cache.effective_limit(testing=True, limit=5000, default=500) == 10
-    assert dandi_cache.effective_limit(testing=False, limit=5000, default=500) == 5000
-    assert dandi_cache.effective_limit(testing=False, limit=None, default=500) == 500
-    assert dandi_cache.effective_limit(testing=False, limit=None, default=None) is None
+def test_the_dataset_resolves_the_limit_it_was_declared_with(tmp_path):
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache"}, "operations": {"update": {"limit": 500, "testing_limit": 2}}},
+        directory=tmp_path,
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
+
+    assert dataset.limit() == 500
+    assert dataset.limit(50) == 50
+    assert dataclasses.replace(dataset, testing=True).limit() == 2
+    # Testing wins over an explicit override too: a smoke run is small whatever was asked for.
+    assert dataclasses.replace(dataset, testing=True).limit(50) == 2
+
+
+@pytest.mark.ai_generated
+def test_the_limit_is_resolved_against_the_operation_being_run(tmp_path):
+    cache_config = dandi_cache.parse_config(
+        {
+            "cache": {"name": "my-cache"},
+            "operations": {"update": {"limit": 500}, "refresh": {"limit": 20, "testing_limit": 1}},
+        },
+        directory=tmp_path,
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path, operation="refresh")
+
+    assert dataset.limit() == 20
+    assert dataclasses.replace(dataset, testing=True).limit() == 1
+
+
+@pytest.mark.ai_generated
+def test_a_cache_with_no_declared_limit_processes_everything(tmp_path):
+    """Nothing declared means nothing to meter, and `--testing` then changes only where it writes.
+
+    There is deliberately no library-side default to fall back on: the numbers live in
+    `cache.toml`, so a cache that states none gets none rather than one it never chose.
+    """
+    cache_config = dandi_cache.parse_config({"cache": {"name": "my-cache"}}, directory=tmp_path)
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
+
+    assert dataset.limit() is None
+    assert dataclasses.replace(dataset, testing=True).limit() is None
+
+
+@pytest.mark.ai_generated
+def test_testing_without_a_testing_limit_runs_the_ordinary_batch(tmp_path):
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache"}, "operations": {"update": {"limit": 500}}},
+        directory=tmp_path,
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path, testing=True)
+
+    assert dataset.limit() == 500
+    assert dataset.limit(50) == 50
 
 
 @pytest.mark.ai_generated
@@ -311,6 +360,29 @@ def test_a_full_rebuild_writes_a_record_list(tmp_path):
     assert records == [{"a": 1}, {"b": 2}]
     assert result.processed == 2
     assert dandi_cache.read_records(dataset.output_file_path()) == [{"a": 1}, {"b": 2}]
+
+
+@pytest.mark.ai_generated
+def test_a_full_rebuild_cannot_truncate_what_it_publishes(tmp_path):
+    """A limit bounds work, not output, so there is nowhere in a rebuild to apply one.
+
+    This is the footgun the parameter used to be: a cache that declared `limit = 500` published
+    500 records and deleted the rest of itself from every consumer. Removing the parameter is what
+    makes that unrepresentable, so the removal is what is pinned here.
+    """
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache"}, "operations": {"update": {"limit": 1}}},
+        directory=tmp_path,
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
+
+    with pytest.raises(TypeError, match="limit"):
+        dandi_cache.run_full_rebuild(dataset, build=lambda: [{"a": 1}], limit=1)
+
+    # A declared limit is for `build` to apply to its own work; it never reaches the output.
+    records, _result = dandi_cache.run_full_rebuild(dataset, build=lambda: [{"a": 1}, {"b": 2}, {"c": 3}])
+    assert len(records) == 3
+    assert len(dandi_cache.read_records(dataset.output_file_path())) == 3
 
 
 @pytest.mark.ai_generated

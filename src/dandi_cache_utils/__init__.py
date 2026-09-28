@@ -19,7 +19,7 @@ A cache's `code/update.py` is then only the part that is actually unique to it::
             dataset,
             candidates=[content_id for content_id, valid in validity.items() if valid is True],
             process=count,
-            limit=dandi_cache.effective_limit(testing=dataset.testing, limit=arguments.limit),
+            limit=dataset.limit(arguments.limit),
         )
 
 Everything else -- the logging, the batch selection, the failure policy, the output paths, the
@@ -41,7 +41,7 @@ from ._config import (
     parse_config,
     read_config,
 )
-from ._dataset import TESTING_LIMIT, CacheDataset
+from ._dataset import CacheDataset
 from ._jsonl import (
     compress,
     compress_derivatives,
@@ -59,7 +59,6 @@ from ._runner import (
     RECORD,
     SKIP,
     BatchResult,
-    effective_limit,
     run_full_rebuild,
     run_incremental_update,
     select_new,
@@ -80,7 +79,6 @@ __all__ = [
     "RECORD",
     "SKIP",
     "StagedErrorLog",
-    "TESTING_LIMIT",
     "__version__",
     "api",
     "as_shell",
@@ -90,7 +88,6 @@ __all__ = [
     "compress_derivatives",
     "configure_logging",
     "dandi_cache_cli",
-    "effective_limit",
     "load_config",
     "logger",
     "nwb",

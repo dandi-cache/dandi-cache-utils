@@ -2,7 +2,25 @@
 
 ## Upcoming
 
+### 💥 Breaking
+
+- `run_full_rebuild` no longer takes a `limit`, because a limit bounds the work a run does and never the records it publishes.
+  It used to `islice` the records on their way out, so a rebuild cache that declared `limit = 500` would publish 500 entries and delete the rest of itself from every consumer -- and six of the organization's caches reached that code path by passing their configured limit straight through.
+  A rebuild cache that has real work to bound now bounds it inside `build`, on what it fetches, and still publishes everything it knows.
+- `effective_limit` is gone. `dataset.limit(arguments.limit)` is the one way to resolve a batch cap, and it reads both the operation's `limit` and its `testing_limit` out of `cache.toml` rather than having the caller assemble them.
+  Keeping a second entry point that took those as arguments meant two implementations of one rule, and the one nothing called was the one that could drift.
+
 ### 🚀 Enhancement
+
+- Every operation declares how much work one run does. `[operations.<name>] limit` is how much of the backlog a scheduled run gets through, and the new `testing_limit` is the smallest batch that still exercises that operation end to end.
+  A testing run was previously a single organization-wide `TESTING_LIMIT = 10` whatever the cache did, which is far too many items for a cache that streams an NWB file each time and too few to exercise one that reads a manifest.
+  `TESTING_LIMIT` is gone with it: both numbers are read from `cache.toml` and nowhere else. An operation that declares no `testing_limit` runs its ordinary batch under `--testing`, which then changes only where it writes.
+  A `testing_limit` above the operation's own `limit` is rejected as a configuration mistake.
+- `CacheDataset` knows which operation is being run and resolves the batch cap for it: `dataset.limit(arguments.limit)` replaces `effective_limit(testing=dataset.testing, limit=arguments.limit)` at every entry point.
+  The declaration in `cache.toml` is then the only place a cache's batch size is written, rather than something each entry point reassembles.
+- `dandi-cache check-operations` now also holds every keyword a script passes to a library function against that function's signature, read with `inspect.signature` at check time.
+  A stale keyword is already a `TypeError`, but only once the call is reached -- which for these caches is the next scheduled run against the real `derivatives` branch, and the caches track the library through a floating base-image tag rather than a version bound, so the window between a release and its migrations is real.
+  Deriving it from the signature rather than from a list of known removals means there is nothing to keep in step: a dropped parameter, a renamed one and a misspelled one are all reported the same way.
 
 - Added `dandi-cache check-operations`, which holds a cache's own operation scripts to the library its image carries.
   The image build proved the image and the `cache.toml` and never the one file the cache itself contributes, so a script naming a function the installed library does not have passed every check and failed at the next scheduled run, on the real `derivatives` branch.

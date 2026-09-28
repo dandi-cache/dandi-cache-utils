@@ -103,6 +103,19 @@ def test_extra_operations_are_declared(tmp_path):
 
 
 @pytest.mark.ai_generated
+def test_an_operation_declares_both_of_its_batch_sizes(tmp_path):
+    file_path = write_config(
+        tmp_path,
+        '[cache]\nname = "my-cache"\n\n[operations.update]\nlimit = 500\ntesting_limit = 2\n',
+    )
+
+    update = dandi_cache.read_config(file_path).operation("update")
+
+    assert update.limit == 500
+    assert update.testing_limit == 2
+
+
+@pytest.mark.ai_generated
 def test_an_unknown_operation_names_the_declared_ones(tmp_path):
     parsed = dandi_cache.read_config(write_config(tmp_path, '[cache]\nname = "my-cache"\n'))
 
@@ -119,6 +132,10 @@ def test_an_unknown_operation_names_the_declared_ones(tmp_path):
         '[cache]\nname = "my-cache"\noutputs = ["results.yaml"]\n',
         '[cache]\nname = "my-cache"\n\n[[inputs]]\nname = "a"\nformat = "yaml"\n',
         '[cache]\nname = "my-cache"\n\n[operations.update]\nlimit = 0\n',
+        '[cache]\nname = "my-cache"\n\n[operations.update]\nlimit = true\n',
+        '[cache]\nname = "my-cache"\n\n[operations.update]\ntesting_limit = 0\n',
+        # A testing run larger than a scheduled one is a mistake rather than a preference.
+        '[cache]\nname = "my-cache"\n\n[operations.update]\nlimit = 5\ntesting_limit = 10\n',
         '[cache]\nname = "my-cache"\n\n[operations.update]\nscript = "../outside.py"\n',
     ],
 )

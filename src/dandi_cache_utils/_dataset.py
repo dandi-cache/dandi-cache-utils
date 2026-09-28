@@ -14,14 +14,10 @@ import dataclasses
 import pathlib
 
 from . import _jsonl
-from ._config import CacheConfig, InputCache, load_config
+from ._config import DEFAULT_OPERATION, CacheConfig, InputCache, load_config
 from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
 TESTING_FILE_PREFIX = "testing_"
-
-# A testing run processes this many items: enough to exercise the real processing logic end to
-# end -- the container build, the provenance record, the network calls -- and few enough to be fast.
-TESTING_LIMIT = 10
 
 
 @dataclasses.dataclass(frozen=True)
@@ -31,6 +27,8 @@ class CacheDataset:
     config: CacheConfig
     base_directory: pathlib.Path
     testing: bool = False
+    #: Which declared operation this run is, which is what `limit` is resolved against.
+    operation: str = DEFAULT_OPERATION
 
     @classmethod
     def open(
@@ -40,13 +38,28 @@ class CacheDataset:
         *,
         testing: bool = False,
         config: CacheConfig | None = None,
+        operation: str = DEFAULT_OPERATION,
     ) -> "CacheDataset":
         """Open the dataset at `base_directory`, loading `cache.toml` if one was not supplied."""
         return cls(
             config=config if config is not None else load_config(),
             base_directory=pathlib.Path(base_directory),
             testing=testing,
+            operation=operation,
         )
+
+    def limit(self, override: int | None = None, /) -> int | None:
+        """How many items this run should work through, as `cache.toml` declares it::
+
+            limit = dataset.limit(arguments.limit)
+
+        The operation's `testing_limit` under `--testing`, otherwise `override` (an explicit
+        `--limit`), otherwise the operation's `limit`. `None` means the run is not capped.
+        """
+        declared = self.config.operation(self.operation)
+        if self.testing and declared.testing_limit is not None:
+            return declared.testing_limit
+        return override if override is not None else declared.limit
 
     @property
     def derivatives_directory(self) -> pathlib.Path:

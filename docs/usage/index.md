@@ -17,6 +17,7 @@ name = "content-id-to-valid-nwb-file"
 
 [operations.update]
 limit = 500
+testing_limit = 2
 
 [description]
 authors = ["Cody Baker"]
@@ -55,18 +56,44 @@ Nothing is then pinned, and the container must be able to reach the upstream sou
 
 ### `[operations]`
 
-`update` always exists and defaults to `code/update.py`.
-Declare another only when a cache genuinely has one — such as a `refresh` that re-assesses what it already recorded.
+`update` always exists and defaults to `code/update.py`; the example above declares its limits.
+Declare another only when a cache genuinely has one — such as a `refresh` that re-assesses what it already recorded:
 
 ```toml
-[operations.update]
-limit = 500        # the default batch size for a complete run
-
 [operations.refresh]
-label = "Refresh"  # `script` defaults to code/refresh.py
+label = "Refresh"
 ```
 
-Set `limit` only for a cache too heavy to clear its backlog in one run; most caches should be incremental and leave it unset.
+| Key | Default | Meaning |
+|---|---|---|
+| `script` | `code/<name>.py` | The entry point this operation runs. |
+| `label` | the capitalized `name` | How the operation is named in logs and commit messages. |
+| `limit` | none | How many items one run works through. |
+| `testing_limit` | none | What `--testing` uses instead. Must not exceed `limit`. Without one, `--testing` runs the ordinary batch and changes only where it writes. |
+
+#### What a limit means
+
+**A limit bounds the work a run does, never the records it publishes.**
+
+Every cache is metered: `limit` is how much of the backlog one cron gets through, and running often enough is what clears it.
+A capped run still publishes the complete cache — it advances the frontier by that much and leaves the rest for the next run.
+
+This is why {func}`~dandi_cache_utils.run_full_rebuild` takes no limit.
+Capping the records on the way out would publish a truncated file, which does not defer the rest of the cache but deletes it from every consumer.
+A cache with no frontier still meters itself, by bounding what it *fetches* inside `build`:
+
+```python
+# Bound the work: how many Dandisets this run reads.
+dandiset_ids = dandi_cache.select_new(all_dandiset_ids, recorded, limit=dataset.limit(arguments.limit))
+...
+# Publish everything known, including what earlier runs resolved.
+dandi_cache.run_full_rebuild(dataset, build=build)
+```
+
+A cache that genuinely has nothing to meter — a filter or a join over inputs already in hand, which completes in full every run — declares no `limit` and says so in a comment.
+For those, `--testing` changes only where the output is written.
+
+`dataset.limit(arguments.limit)` resolves the cap for the run in hand, and is the only thing that does: the operation's `testing_limit` under `--testing`, otherwise an explicit `--limit`, otherwise the declared `limit`.
 
 ### `[description]`
 
@@ -136,7 +163,7 @@ def main():
         dataset,
         candidates=[content_id for content_id, valid in validity.items() if valid is True],
         process=count_groups,
-        limit=dandi_cache.effective_limit(testing=dataset.testing, limit=arguments.limit),
+        limit=dataset.limit(arguments.limit),
         on_failure=dandi_cache.SKIP,
         stages={"reading the NWB file": "file_read_errors.txt"},
         checkpoint_every=50,
@@ -199,8 +226,10 @@ That runs after every write of the cache itself, checkpoints included, so all of
 
 ### Rebuilding instead of resuming
 
-A cache that is a pure filter or reshaping of its input, with no per-item work worth resuming, uses {func}`~dandi_cache_utils.run_full_rebuild` instead.
-It takes the same `dataset`, builds the whole mapping in one pass, and has no frontier, limit or failure policy to choose.
+A cache that is a derivation of its inputs rather than an accumulation of per-item work -- a filter, a join, a reshaping -- uses {func}`~dandi_cache_utils.run_full_rebuild` instead.
+It takes the same `dataset`, builds the whole mapping in one pass, and has no frontier or failure policy to choose.
+
+It takes no `limit`, deliberately: the `[operations]` section above covers why, and how a rebuild cache meters what it fetches instead.
 
 ## The workflows
 

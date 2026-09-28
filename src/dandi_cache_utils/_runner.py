@@ -5,6 +5,13 @@ process each item, log a line about it, decide what a failure means, and write t
 Only the per-item operation differs. `run_incremental_update` is that loop; the cache supplies
 the operation.
 
+One invariant holds across both models, and it is the reason the limit lives where it does:
+**a limit bounds the work a run does, never the records it publishes.** Every cache declares how
+much one scheduled run gets through, so a backlog is cleared over several crons rather than in
+one; what each of those runs writes is still the complete cache. Applying the cap to the output
+instead would publish a truncated file and delete the rest of the cache from every consumer, which
+is why there is nowhere in this module to do it.
+
 Two failure policies are in use across the organization and both are supported explicitly,
 because choosing the wrong one is a real bug:
 
@@ -22,7 +29,7 @@ import math
 import time
 import typing
 
-from ._dataset import TESTING_LIMIT, CacheDataset
+from ._dataset import CacheDataset
 from ._logs import StagedErrorLog, logger, peak_memory_mib
 
 SKIP = "skip"
@@ -83,17 +90,6 @@ def select_stale(
     if limit is None and fraction_per_run is not None:
         limit = max(1, math.ceil(len(ordered) * fraction_per_run)) if ordered else 0
     return ordered if limit is None else list(itertools.islice(ordered, limit))
-
-
-def effective_limit(*, testing: bool, limit: int | None, default: int | None = None) -> int | None:
-    """Resolve the batch cap from the testing flag, an explicit limit, and the configured default.
-
-    Testing always wins: a smoke run is meant to be small and fast regardless of what the cache's
-    ordinary batch size is.
-    """
-    if testing:
-        return TESTING_LIMIT
-    return limit if limit is not None else default
 
 
 def run_incremental_update(
@@ -214,19 +210,22 @@ def run_full_rebuild(
     /,
     *,
     build: typing.Callable[[], typing.Iterable],
-    limit: int | None = None,
     output: str | None = None,
 ) -> tuple[list, BatchResult]:
-    """Recompute a cache from scratch and write it out, for the cheap pure-filter caches.
+    """Write a cache that was recomputed in full, for caches with nothing to resume.
 
-    Some caches are a filter over an upstream file rather than an accumulation of expensive work.
-    They have nothing to resume, so they recompute everything each run; the `limit` is a bounded
-    smoke test rather than a batch size.
+    Some caches are a derivation of their inputs rather than an accumulation of expensive work:
+    a filter, a join, a reshaping. They have no frontier, so they recompute everything each run
+    and this writes the result.
+
+    There is deliberately no `limit` here. A cache meters itself by bounding the *work* it does --
+    which items it fetches, which Dandisets it reads -- inside `build`, and then publishes
+    everything it knows. Capping the records on the way out would instead delete the rest of the
+    cache from the published file, which is never what a limit is asked for. `dataset.limit()`
+    resolves the cap; where it is applied is what makes it safe, so it belongs upstream of here.
     """
     start_time = time.monotonic()
     records = list(build())
-    if limit is not None:
-        records = list(itertools.islice(records, limit))
 
     file_path = dataset.write_output_records(records, output)
     result = BatchResult(
