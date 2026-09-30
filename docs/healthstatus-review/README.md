@@ -28,11 +28,15 @@ Tick an item off here when it lands, and note the pull request that closed it.
 |---|---|---|
 | `limit` truncates the published output of six full-rebuild caches | `run_full_rebuild`, six caches | fixed, [#16](https://github.com/dandi-cache/dandi-cache-utils/pull/16) and the sixteen cache pull requests it lists |
 | Four dispatch descriptions describe incremental behaviour on caches that truncate | sixteen cache `update.yml` files | fixed, with the cache pull requests above |
-| `check-operations` and `dataset-description --check` never run when `code/` or `cache.toml` changes | build workflow path filter, template then sixteen caches | open |
+| `check-operations` and `dataset-description --check` never run when `code/` or `cache.toml` changes | build workflow path filter, template then sixteen caches | fixed, [cache-template#52](https://github.com/dandi-cache/cache-template/pull/52) and the sixteen cache pull requests that adopted `dandi-cache-action@v4` |
 
 The truncation was not patched but removed: `run_full_rebuild` no longer takes a `limit` at all, so a rebuild cannot cap what it publishes.
 That made a limit safe to require everywhere, which is now the rule — every operation declares how much work one scheduled run does, plus the `testing_limit` a smoke run uses, and `dandi-cache check-operations` reports a surviving `run_full_rebuild(..., limit=...)` at image-build time.
 Three of the six rebuild caches were rewired to bound what they *fetch*; one became accumulative; two are pure derivations of inputs already in hand, declare no limit, and say so.
+
+The path filter now rebuilds on `code/**`, `cache.toml` and `dataset_description.json`, since the build is where a cache's own code gets checked.
+Landing it exposed an ordering bug the review had not listed: the build pushed `:latest` before running those checks, so a failing check reported on an image every cache was already pulling.
+[`dandi-cache-action#8`](https://github.com/dandi-cache/dandi-cache-action/pull/8), released as `v4`, pushes only after every check passes, and all sixteen caches and the template now pin it.
 
 ### Fix systemically
 
