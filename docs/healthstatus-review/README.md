@@ -2,6 +2,7 @@
 
 Each file in this directory is one point-in-time audit of the whole DANDI Cache organization, named for the date it was conducted.
 Reviews are added rather than overwritten, so the direction of travel stays visible.
+A dated review is a record of what was found on that date and is not edited afterwards; progress on its findings is tracked in the standing below.
 A finding that survives three reviews is a different problem from one that appeared last week.
 
 A review covers every repository in the organization, not this library alone.
