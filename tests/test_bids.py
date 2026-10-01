@@ -13,7 +13,7 @@ import dandi_cache_utils as dandi_cache
 
 SCHEMA = bidsschematools.schema.load_schema()
 METADATA = SCHEMA["objects"]["metadata"]
-DATASET_DESCRIPTION_RULES = SCHEMA["rules"]["dataset_metadata"]["dataset_description"]["fields"]
+DATASET_DESCRIPTION_RULES = SCHEMA["rules"]["json"]["dataset"]["dataset_description"]["fields"]
 
 #: Deliberately not the real release: the version published is whatever the caller passes, and
 #: pinning it here would mean editing this file on every bump without checking anything more.

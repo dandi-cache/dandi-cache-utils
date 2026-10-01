@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dandi-cache-utils"
-version = "0.2.0"
+version = "0.2.1"
 description = "The shared operations, orchestration, and CI used by every DANDI Cache."
 readme = "README.md"
 # The container runs 3.13, but the config module is also imported by the CI runner's system
@@ -30,7 +30,8 @@ nwb = ["h5py", "hdmf-zarr", "nwbinspector", "pynwb", "remfile", "s3fs", "zarr<3"
 # Everything, which is what the published `nwb` image tag carries.
 all = ["dandi-cache-utils[s3,archive,nwb]"]
 # `bidsschematools` is the BIDS maintainers' machine-readable specification, which the published
-# `dataset_description.json` is validated against rather than eyeballed.
+# `dataset_description.json` is validated against rather than eyeballed. `>=2` because 2.0 moved
+# the `dataset_description` rules from `rules.dataset_metadata` to `rules.json.dataset`.
 #
 # `h5py` and `zarr` are here and not only in `nwb` because the structural walk is the one part of
 # the library with nothing to test it against but a real hierarchy: its whole job is to reproduce
@@ -38,7 +39,7 @@ all = ["dandi-cache-utils[s3,archive,nwb]"]
 # of it (`pynwb`, `nwbinspector`, `dandi`) is needed to build one.
 # `boto3` brings `botocore.exceptions`, which the archive readers catch by error code. A stub
 # client covers the rest, so this is the only part of the S3 stack the tests need.
-test = ["bidsschematools", "boto3", "h5py", "pytest", "zarr<3"]
+test = ["bidsschematools>=2", "boto3", "h5py", "pytest", "zarr<3"]
 
 [project.scripts]
 dandi-cache = "dandi_cache_utils._cli:dandi_cache_cli"
