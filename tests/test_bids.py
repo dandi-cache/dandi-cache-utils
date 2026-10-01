@@ -13,7 +13,12 @@ import dandi_cache_utils as dandi_cache
 
 SCHEMA = bidsschematools.schema.load_schema()
 METADATA = SCHEMA["objects"]["metadata"]
-DATASET_DESCRIPTION_RULES = SCHEMA["rules"]["dataset_metadata"]["dataset_description"]["fields"]
+#: `bidsschematools` 2.0 moved these out of `rules.dataset_metadata`, but `dandi` still pins 1.x,
+#: so the `:latest` image the tests also run in carries the old layout.
+_DATASET_RULES = (
+    SCHEMA["rules"]["dataset_metadata"] if "dataset_metadata" in SCHEMA["rules"] else SCHEMA["rules"]["json"]["dataset"]
+)
+DATASET_DESCRIPTION_RULES = _DATASET_RULES["dataset_description"]["fields"]
 
 #: Deliberately not the real release: the version published is whatever the caller passes, and
 #: pinning it here would mean editing this file on every bump without checking anything more.
