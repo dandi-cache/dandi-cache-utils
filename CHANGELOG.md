@@ -73,10 +73,6 @@
 - Added the `dandi-cache` command (`compress`, `config show`, `config shell`, `dataset-description`), built on `rich-click`, the distribution's one required dependency.
   The optional extras stay out of the import graph: `api`, `nwb` and `s3` import theirs inside the functions that use them, so a cache on the `:latest` image never pays for the NWB stack.
 
-### 🔩 Dependency Updates
-
-- The `test` extra now requires `bidsschematools>=2`, and the BIDS conformance tests read the `dataset_description` rules from `rules.json.dataset`, where 2.0 moved them from `rules.dataset_metadata` ([#19](https://github.com/dandi-cache/dandi-cache-utils/pull/19)).
-
 ### 🏠 Internal
 
 - Publishing the base images now asks every cache to rebuild its own image, through a `repository_dispatch` its build workflow listens for.
