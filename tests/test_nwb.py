@@ -335,3 +335,84 @@ def test_the_cophenetic_index_of_a_caterpillar(tmp_path):
 
     assert sorted(structure.leaf_depths) == [1, 2, 3, 3]
     assert structure.total_cophenetic_index == 1 * 2 + 2 * 1
+
+
+class _CountingFile:
+    """A file object that counts its reads, each of which is a range request on a streamed file."""
+
+    def __init__(self, path):
+        self._file = open(path, "rb")
+        self.reads = 0
+
+    def read(self, size=-1):
+        self.reads += 1
+        return self._file.read(size)
+
+    def readinto(self, buffer):
+        self.reads += 1
+        return self._file.readinto(buffer)
+
+    def seek(self, offset, whence=0):
+        return self._file.seek(offset, whence)
+
+    def tell(self):
+        return self._file.tell()
+
+
+@pytest.mark.parametrize("links", [nwb.LINKS_SKIPPED, nwb.LINKS_FOLLOWED])
+def test_the_walk_does_not_read_chunk_indexes(tmp_path, links):
+    """The walk reads object headers, never a dataset's chunk index.
+
+    Its cost on a streamed file is the number of reads, so it must not grow with the number of
+    chunks. Identifying an object through `h5py.h5o.get_info` did: that call also sizes the object's
+    metadata, which for a chunked dataset means reading the whole chunk index, and one heavily
+    chunked file then took half an hour to walk over the network.
+    """
+
+    def walk_reads(number_of_chunks):
+        path = tmp_path / f"{number_of_chunks}.h5"
+        with h5py.File(path, "w") as file:
+            for index in range(3):
+                file.create_dataset(
+                    f"group/dataset_{index}",
+                    data=numpy.ones(number_of_chunks * 10, dtype="i1"),
+                    chunks=(10,),
+                )
+        counting_file = _CountingFile(path)
+        with h5py.File(counting_file, "r") as file:
+            before = counting_file.reads
+            nwb.walk_hdf5_group(file, links=links)
+            return counting_file.reads - before
+
+    assert walk_reads(20_000) == walk_reads(10)
+
+
+def test_the_electrical_series_reader_is_found_where_spikeinterface_defines_it(monkeypatch):
+    """`spikeinterface.extractors` stopped re-exporting `NwbRecordingExtractor` in 0.105.
+
+    Stand in a package laid out like 0.105, so this holds whichever release is installed here:
+    the class lives only in `spikeinterface.extractors.nwbextractors`.
+    """
+    import sys
+    import types
+
+    calls = []
+
+    class NwbRecordingExtractor:
+        @staticmethod
+        def fetch_available_electrical_series_paths(file_path, stream_mode):
+            calls.append((file_path, stream_mode))
+            return ["acquisition/ElectricalSeries", "processing/ecephys/LFP"]
+
+    package = types.ModuleType("spikeinterface")
+    extractors = types.ModuleType("spikeinterface.extractors")
+    nwbextractors = types.ModuleType("spikeinterface.extractors.nwbextractors")
+    nwbextractors.NwbRecordingExtractor = NwbRecordingExtractor
+    package.extractors = extractors
+    extractors.nwbextractors = nwbextractors
+    monkeypatch.setitem(sys.modules, "spikeinterface", package)
+    monkeypatch.setitem(sys.modules, "spikeinterface.extractors", extractors)
+    monkeypatch.setitem(sys.modules, "spikeinterface.extractors.nwbextractors", nwbextractors)
+
+    assert nwb.electrical_series_paths("https://example/blob") == ["acquisition/ElectricalSeries"]
+    assert calls == [("https://example/blob", "remfile")]

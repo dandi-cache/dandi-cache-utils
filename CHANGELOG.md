@@ -73,6 +73,15 @@
 - Added the `dandi-cache` command (`compress`, `config show`, `config shell`, `dataset-description`), built on `rich-click`, the distribution's one required dependency.
   The optional extras stay out of the import graph: `api`, `nwb` and `s3` import theirs inside the functions that use them, so a cache on the `:latest` image never pays for the NWB stack.
 
+### 🐛 Bug Fixes
+
+- The structural walk no longer reads a dataset's chunk index to identify it.
+  Recognizing an object reached twice used `h5py.h5o.get_info(...).addr`, and `get_info` also sizes the object's metadata, which for a chunked dataset means reading its whole chunk index -- one range request per index node on a streamed file.
+  The default `LINKS_SKIPPED` walk asked that of every dataset, so the slowest one percent of files took a third to three quarters of each run in `valid-nwb-file-to-number-of-groups`, `-number-of-datasets` and `-sackin-index`, single files taking 30 to 50 minutes. A 10 GB file that took 672 s to count now takes under 2 s.
+  The address now comes from `h5py.h5g.get_objinfo(...).objno`, which is the same object header address and reads nothing beyond the header, so every published value is unchanged.
+- `nwb.electrical_series_paths` imports `NwbRecordingExtractor` from `spikeinterface.extractors.nwbextractors`, where it is defined.
+  `spikeinterface` 0.105 stopped re-exporting it from `spikeinterface.extractors`, so since the image rebuilds of 2026-09-28 every file failed with `AttributeError` and `qualifying-lfp-content-ids` recorded nothing new, holding `qualifying-aind-content-ids` back with it.
+
 ### 🏠 Internal
 
 - Publishing the base images now asks every cache to rebuild its own image, through a `repository_dispatch` its build workflow listens for.

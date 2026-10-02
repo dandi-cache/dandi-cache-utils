@@ -209,10 +209,15 @@ def walk_hdf5_group(root_group, /, *, links: str = LINKS_SKIPPED) -> Structure:
     followed = links == LINKS_FOLLOWED
     structure = Structure(layout=HDF5, links=links)
     #: Object header addresses, which is what makes two paths to one object recognizable as one.
-    visited: set[int] = set()
+    visited: set[tuple[int, int]] = set()
 
-    def _address(item) -> int:
-        return h5py.h5o.get_info(item.id).addr
+    def _address(item) -> tuple[int, int]:
+        # The same address `h5py.h5o.get_info(...).addr` reports, without what else that call
+        # collects. `get_info` also sizes the object's metadata, and for a chunked dataset that
+        # means reading its whole chunk index: on a streamed file, one round trip per index node,
+        # so a single heavily chunked file took half an hour to count. This reads nothing beyond
+        # the object header, which opening the object has already read.
+        return h5py.h5g.get_objinfo(item.id).objno
 
     def _children(group):
         """The group's children under this link policy, in the order `visititems` would see them."""
@@ -365,12 +370,14 @@ def inspect_nwbfile_object(nwbfile, /, *, config=None, importance_threshold: str
 
 def electrical_series_paths(url: str, /, *, prefix: str = "acquisition/") -> list[str]:
     """The SpikeInterface-visible ElectricalSeries paths in a remote NWB file, filtered by prefix."""
-    import spikeinterface.extractors
+    # From the module that defines it. `spikeinterface.extractors` stopped re-exporting the class in
+    # 0.105, so the shorter path raised `AttributeError` on every file and an unpinned image rebuild
+    # was enough to stop `qualifying-lfp-content-ids` recording anything. This path holds in every
+    # release that has the class at all.
+    from spikeinterface.extractors.nwbextractors import NwbRecordingExtractor
 
-    paths: typing.Iterable[str] = (
-        spikeinterface.extractors.NwbRecordingExtractor.fetch_available_electrical_series_paths(
-            file_path=url, stream_mode="remfile"
-        )
+    paths: typing.Iterable[str] = NwbRecordingExtractor.fetch_available_electrical_series_paths(
+        file_path=url, stream_mode="remfile"
     )
     return [series_path for series_path in paths if series_path.startswith(prefix)]
 
