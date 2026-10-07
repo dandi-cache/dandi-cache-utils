@@ -185,7 +185,8 @@ def run_incremental_update(
                 records[item] = failure_value(item, scope) if callable(failure_value) else failure_value
                 result.processed += 1
                 if on_failure == RETRY:
-                    logger.warning("%s: recorded the failure; a later run retries it.", progress)
+                    retried = "; a later run retries it" if retry_when(records[item]) else ", not to be retried"
+                    logger.warning("%s: recorded the failure%s.", progress, retried)
             else:
                 logger.warning("%s: leaving unrecorded for a later run to retry.", progress)
         elif value is NOTHING:
