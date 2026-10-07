@@ -32,6 +32,7 @@ from ._cli import dandi_cache_cli
 from ._config import (
     CONFIG_FILE_NAME,
     CONFIG_PATH_VARIABLE,
+    GITHUB_FILE_LIMIT_BYTES,
     CacheConfig,
     InputCache,
     Operation,
@@ -72,6 +73,7 @@ __all__ = [
     "BatchResult",
     "CONFIG_FILE_NAME",
     "CONFIG_PATH_VARIABLE",
+    "GITHUB_FILE_LIMIT_BYTES",
     "CacheConfig",
     "CacheDataset",
     "ErrorLog",

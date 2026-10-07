@@ -18,7 +18,7 @@ import pathlib
 
 import rich_click
 
-from . import _check, _config, _jsonl, pipeline
+from . import _check, _config, _jsonl, _sizes, pipeline
 from ._version import __version__
 
 CONFIG_ARGUMENT = rich_click.argument(
@@ -64,6 +64,56 @@ def compress_command(base_directory: pathlib.Path) -> None:
         rich_click.echo(file_path)
     if not compressed:
         rich_click.echo(f"No derivatives/*.jsonl files found under {base_directory}.", err=True)
+
+
+@dandi_cache_cli.command("check-sizes")
+@rich_click.argument(
+    "directory",
+    type=rich_click.Path(exists=True, file_okay=False, path_type=pathlib.Path),
+)
+@rich_click.option(
+    "--warning-fraction",
+    type=rich_click.FloatRange(0, 1),
+    default=_sizes.WARNING_FRACTION,
+    show_default=True,
+    help="Report a file past this fraction of GitHub's 100 MiB limit.",
+)
+@rich_click.option(
+    "--output-name",
+    default="size-warnings",
+    show_default=True,
+    help="The GitHub Actions step output to report the findings in, when there are any.",
+)
+def check_sizes_command(directory: pathlib.Path, warning_fraction: float, output_name: str) -> None:
+    """Report the files under DIRECTORY near GitHub's 100 MiB limit, and fail on any past it.
+
+    The pipeline runs this on what it is about to push. Under GitHub Actions each finding is also an
+    annotation on the run, a line of its summary, and the step output `--output-name`, which is what
+    lets the action send a notification while the run itself still succeeds.
+    """
+    findings = _sizes.find_large_files(directory, warning_fraction=warning_fraction)
+    if not findings:
+        rich_click.echo(f"No file under {directory} is past {warning_fraction:.0%} of GitHub's 100 MiB limit.")
+        return
+
+    for finding in findings:
+        rich_click.echo(f"::{finding.level} title=File size near GitHub's limit::{finding.describe()}")
+
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, mode="a") as summary:
+            summary.write("### Files near GitHub's 100 MiB limit\n\n")
+            summary.writelines(f"- {finding.describe()}\n" for finding in findings)
+            summary.write("\n")
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, mode="a") as output:
+            output.write(f"{output_name}<<SIZE_WARNINGS_END\n")
+            output.writelines(f"{finding.describe()}\n" for finding in findings)
+            output.write("SIZE_WARNINGS_END\n")
+
+    if any(finding.level == _sizes.ERROR for finding in findings):
+        raise SystemExit(1)
 
 
 @dandi_cache_cli.group("config")

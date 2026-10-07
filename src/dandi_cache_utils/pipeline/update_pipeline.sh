@@ -37,6 +37,9 @@
 #                `limit` in `cache.toml`.
 #   GITHUB_SHA   Recorded in the provenance message to link results to the code commit.
 #   RUNNER_TEMP  Scratch directory for the working clones (default: /tmp).
+#   PUBLISH_DIST "false" stages the `dist` content without pushing it, and reports the directory as
+#                the `dist-directory` step output, for a later step to publish. Anything else pushes
+#                it here, as every cache did before that step existed.
 #   DANDI_CACHE_UTILS_DIR  The installable source tree this script was extracted with (default:
 #                three levels above this script, which is where it sits inside the package).
 set -euo pipefail
@@ -48,6 +51,7 @@ OPERATION="${OPERATION:-update}"
 TESTING="${TESTING:-}"
 LIMIT="${LIMIT:-}"
 GITHUB_SHA="${GITHUB_SHA:-unknown}"
+PUBLISH_DIST="${PUBLISH_DIST:-true}"
 
 BOT_NAME="github-actions[bot]"
 BOT_EMAIL="github-actions[bot]@users.noreply.github.com"
@@ -325,6 +329,12 @@ datalad containers-run -n pipeline --explicit \
   -m "${OPERATION_LABEL} ${CACHE_NAME} (code @ ${GITHUB_SHA}; image ${DIGEST})" \
   "python /workspace/${OPERATION_SCRIPT} --base-directory /tmp${RUN_ARGUMENTS}"
 
+# GitHub refuses a push carrying any file over 100 MiB, and says so only after the upload. Check
+# first, so a file approaching the limit is reported while there is still room -- as an annotation,
+# and as the `size-warnings` output the action notifies on -- and one past it stops the run here with
+# what to do about it.
+dandi_cache check-sizes "${DS}"
+
 # Publish the full results to the `derivatives` branch.
 push_with_retry "${DS}" derivatives HEAD
 
@@ -354,6 +364,19 @@ if [ "${published}" -eq 0 ]; then
 fi
 
 cp "${DS}/dataset_description.json" "${DISTDIR}/dataset_description.json"
+
+# The same check for what `dist` is about to publish, compressed: an output split across sixteen
+# files on `derivatives` is still one file here.
+dandi_cache check-sizes "${DISTDIR}" --output-name dist-size-warnings
+
+if [ "${PUBLISH_DIST}" = "false" ]; then
+  echo "Staged 'dist' in ${DISTDIR} for a later step to publish."
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "dist-directory=${DISTDIR}" >> "${GITHUB_OUTPUT}"
+  fi
+  exit 0
+fi
+
 git -C "${DISTDIR}" init -q -b dist
 git -C "${DISTDIR}" config user.name "${BOT_NAME}"
 git -C "${DISTDIR}" config user.email "${BOT_EMAIL}"

@@ -101,6 +101,36 @@ def test_every_derivative_is_compressed(tmp_path):
 
 
 @pytest.mark.ai_generated
+def test_an_output_kept_as_sixteen_files_is_compressed_as_one(tmp_path):
+    derivatives = tmp_path / "derivatives"
+    derivatives.mkdir()
+    for prefix in "0123456789abcdef":
+        (derivatives / f"cache_{prefix}.jsonl").write_text("")
+    (derivatives / "cache_0.jsonl").write_text('{"0a": 1}\n')
+    (derivatives / "cache_f.jsonl").write_text('{"f1": 2}\n')
+    (derivatives / "other.jsonl").write_text('{"b": 2}\n')
+
+    compressed = dandi_cache.compress_derivatives(tmp_path)
+
+    # Published under the name it had before it was split, and only under that name.
+    assert [path.name for path in compressed] == ["cache.jsonl.gz", "other.jsonl.gz"]
+    assert gzip.decompress((derivatives / "cache.jsonl.gz").read_bytes()) == b'{"0a": 1}\n{"f1": 2}\n'
+
+
+@pytest.mark.ai_generated
+def test_files_that_only_look_split_are_compressed_one_by_one(tmp_path):
+    derivatives = tmp_path / "derivatives"
+    derivatives.mkdir()
+    # Two of sixteen is not a split output, and neither is a full set beside its own single file.
+    (derivatives / "scores_0.jsonl").write_text("{}\n")
+    (derivatives / "scores_1.jsonl").write_text("{}\n")
+
+    compressed = dandi_cache.compress_derivatives(tmp_path)
+
+    assert [path.name for path in compressed] == ["scores_0.jsonl.gz", "scores_1.jsonl.gz"]
+
+
+@pytest.mark.ai_generated
 def test_read_input_dispatches_on_the_declared_format(tmp_path):
     file_path = tmp_path / "input.jsonl"
     file_path.write_text('{"a": 1}\n')

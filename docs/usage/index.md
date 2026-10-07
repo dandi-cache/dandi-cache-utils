@@ -34,6 +34,28 @@ The file stem, the image reference, the output file name, and each input's URL, 
 | `file_stem` | the underscored `name` | The stem of the default output file. |
 | `image` | `ghcr.io/dandi-cache/<name>` | This cache's runtime image. |
 | `outputs` | `["<file_stem>.jsonl"]` | Every file published to `dist`. Declaring them is what keeps a `testing_` artifact from reaching consumers. |
+| `split` | `[]` | The outputs kept on `derivatives` as sixteen files rather than one. See below. |
+
+#### Outputs near GitHub's file limit
+
+GitHub refuses a push carrying any file over 100 MiB, and the pipeline pushes `derivatives` only once a run's work is done, so an output that outgrows the limit costs every run all of its work.
+Two things guard against it.
+
+- **A size check before every push.** The pipeline runs `dandi-cache check-sizes` on what it is about to push to `derivatives`, and again on what `dist` is about to publish.
+  A file past 80% of the limit is a warning: an annotation on the run, a line in its summary, and a `size-warnings` (or `dist-size-warnings`) step output that `dandi-cache-action` sends an email for, while the run still succeeds.
+  A file past the limit stops the run before the push, naming the file and what to do.
+- **`split`.** An output listed there is kept on `derivatives` as `<stem>_0.jsonl` to `<stem>_f.jsonl`, by the first hexadecimal digit of each key, so only a cache keyed by content ID can split.
+  Nothing in `code/update.py` changes: `read_output_lookup`, `write_output_lookup` and `write_output_records` read and write the sixteen files for a split output, and the first run after declaring it reads the single file and removes it.
+  `dist` still publishes it as the one `<stem>.jsonl.gz` it always did, the sixteen joined in order, so no consumer URL changes; compressed, it is a fraction of the size.
+  A downstream cache needs no change either: `read_input` reads an upstream's sixteen files whenever its single file is absent.
+
+```toml
+[cache]
+name = "content-id-to-dandiset-paths"
+outputs = ["content_id_to_dandiset_paths.jsonl", "asset_manifest_checked_at.jsonl"]
+# Within days of GitHub's 100 MiB limit as one file.
+split = ["content_id_to_dandiset_paths.jsonl"]
+```
 
 ### `[[inputs]]`
 
@@ -307,6 +329,7 @@ dandi-cache config show cache.toml          # what the declaration resolves to
 dandi-cache config shell cache.toml         # the same, as bash assignments
 dandi-cache dataset-description cache.toml  # the BIDS metadata, rendered
 dandi-cache compress                        # gzip derivatives/*.jsonl reproducibly
+dandi-cache check-sizes .                   # files near GitHub's 100 MiB limit
 ```
 
 Against a cache repository with no local environment:
