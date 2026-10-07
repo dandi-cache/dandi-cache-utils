@@ -27,7 +27,8 @@
 #
 # Required environment variables:
 #   REPO_URL     Authenticated https remote for the cache repository (clone/push).
-#   WORKSPACE    Path to the `main` checkout that holds the code and `cache.toml`.
+#   WORKSPACE    Path to a git checkout of the cache's code and `cache.toml`, at the commit to run.
+#                That commit is recorded in `derivatives` as the `workspace` subdataset.
 #   IMAGE        Container image reference to run the processing in.
 # Optional:
 #   OPERATION    Which entry point from `[operations]` to run (default: `update`).
@@ -35,7 +36,6 @@
 #                `testing_`-prefixed files, leaving the real cache untouched.
 #   LIMIT        Cap on the number of new items processed this run. Falls back to the operation's
 #                `limit` in `cache.toml`.
-#   GITHUB_SHA   Recorded in the provenance message to link results to the code commit.
 #   RUNNER_TEMP  Scratch directory for the working clones (default: /tmp).
 #   PUBLISH_DIST "false" stages the `dist` content without pushing it, and reports the directory as
 #                the `dist-directory` step output, for a later step to publish. Anything else pushes
@@ -50,7 +50,6 @@ IMAGE="${IMAGE:-}"  # Defaults below to the image `cache.toml` declares for this
 OPERATION="${OPERATION:-update}"
 TESTING="${TESTING:-}"
 LIMIT="${LIMIT:-}"
-GITHUB_SHA="${GITHUB_SHA:-unknown}"
 PUBLISH_DIST="${PUBLISH_DIST:-true}"
 
 BOT_NAME="github-actions[bot]"
@@ -161,6 +160,7 @@ dandi_cache() { "${RUNNER_VENV}/bin/dandi-cache" "$@"; }
 # are not needed by this script.
 CACHE_NAME=""
 CACHE_IMAGE=""
+CACHE_URL=""
 CACHE_OUTPUTS=()
 INPUT_PATHS=()
 INPUT_URLS=()
@@ -275,6 +275,32 @@ if [ "${#INPUT_PATHS[@]}" -gt 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------
+# Record the code this run executes as the `workspace` subdataset, and run it from there.
+#
+# The run record used to mount the runner's own checkout, `$WORKSPACE`, which only existed on the
+# runner, so `datalad rerun` could not work from a clone of `derivatives`. Now that clone holds all
+# of it: the input subdatasets, the image digest, and the exact commit of the cache's own code.
+#
+# Its URL is `.`, which git resolves to this same repository, so the record holds wherever the
+# repository is cloned from. DataLad cannot install from a relative `.` (datalad/datalad#7889), so
+# `datalad-url` names the repository in full for it. The runner's checkout is cloned locally rather
+# than fetched again, at the commit it is at, which is the code this run executes.
+# ---------------------------------------------------------------------------------------------
+CODE_SHA=$(git -C "${WORKSPACE}" rev-parse HEAD)
+if [ -n "$(git -C "${WORKSPACE}" status --porcelain --untracked-files=no)" ]; then
+  echo "WARNING: ${WORKSPACE} has uncommitted changes, which this run uses but its record of ${CODE_SHA} does not hold." >&2
+fi
+rm -rf workspace
+git clone --quiet --no-checkout "${WORKSPACE}" workspace
+git -C workspace checkout --quiet --detach "${CODE_SHA}"
+git -C workspace remote set-url origin "${CACHE_URL}"
+datalad save -d . -m "Record the code this run executes (${CODE_SHA})" workspace
+# Registering it writes DataLad's own idea of the URL, so the URLs are set after, and replace it.
+git config -f .gitmodules --replace-all submodule.workspace.url .
+git config -f .gitmodules --replace-all submodule.workspace.datalad-url "${CACHE_URL}"
+datalad save -d . -m "Resolve the code subdataset from this repository" .gitmodules
+
+# ---------------------------------------------------------------------------------------------
 # Pin the published image digest and register it as a container. Only the digest is stored (a
 # small text file), so the dataset stays annex-free; ghcr holds the image bytes.
 # ---------------------------------------------------------------------------------------------
@@ -284,12 +310,13 @@ mkdir -p .datalad/environments/pipeline
 printf '%s\n' "${DIGEST}" > .datalad/environments/pipeline/image
 
 # The {img}/{cmd} placeholders and the $-expansions are interpolated by datalad at run time, not by
-# this shell, so they are intentionally left unexpanded here. The whole code checkout is mounted
-# (not just `code/`) so the container finds `cache.toml` next to the entry point.
+# this shell, so they are intentionally left unexpanded here. The whole `workspace` subdataset is
+# mounted (not just `code/`) so the container finds `cache.toml` next to the entry point, and it is
+# mounted from inside the dataset, so the recorded command needs nothing from the runner.
 # shellcheck disable=SC2016
 datalad containers-add pipeline --update \
   --image .datalad/environments/pipeline/image \
-  --call-fmt 'docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/tmp -w /tmp -v "$WORKSPACE":/workspace:ro "$(cat {img})" {cmd}'
+  --call-fmt 'docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/tmp -w /tmp -v "$PWD/workspace":/workspace:ro "$(cat {img})" {cmd}'
 datalad save -m "Pin runtime container image to ${DIGEST}" .datalad
 
 # Fail fast if the dataset is not clean before the recorded run. `containers-run` requires a clean
@@ -311,13 +338,14 @@ fi
 # `--explicit` keeps datalad from clearing the outputs first, which is required because a cache's
 # previous output is the input of its next incremental run. Each declared input subdataset is
 # pinned with `--input`, so every result records the exact upstream commits it was computed from; a
-# first-in-chain cache declares none and fetches its own inputs over the network instead.
+# first-in-chain cache declares none and fetches its own inputs over the network instead. The
+# `workspace` subdataset is an input too, so a rerun from a fresh clone installs the code first.
 #
 # `logs` is a second output: the operation writes a timestamped log of each run there, so the log
 # of every completed update is committed to `derivatives` with the results it produced. Only
 # `derivatives` is published to `dist`.
 # ---------------------------------------------------------------------------------------------
-RUN_INPUT_ARGS=()
+RUN_INPUT_ARGS=(--input workspace)
 for input_path in ${INPUT_PATHS[@]+"${INPUT_PATHS[@]}"}; do
   RUN_INPUT_ARGS+=(--input "${input_path}")
 done
@@ -326,7 +354,7 @@ datalad containers-run -n pipeline --explicit \
   ${RUN_INPUT_ARGS[@]+"${RUN_INPUT_ARGS[@]}"} \
   --output derivatives \
   --output logs \
-  -m "${OPERATION_LABEL} ${CACHE_NAME} (code @ ${GITHUB_SHA}; image ${DIGEST})" \
+  -m "${OPERATION_LABEL} ${CACHE_NAME} (code @ ${CODE_SHA}; image ${DIGEST})" \
   "python /workspace/${OPERATION_SCRIPT} --base-directory /tmp${RUN_ARGUMENTS}"
 
 # GitHub refuses a push carrying any file over 100 MiB, and says so only after the upload. Check
