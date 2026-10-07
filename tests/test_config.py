@@ -171,6 +171,8 @@ def test_shell_rendering_round_trips_through_bash(tmp_path):
     rendered = dandi_cache.as_shell(parsed)
 
     assert "CACHE_NAME=my-cache" in rendered
+    # The public URL, never an authenticated one: it is recorded in `derivatives` for the code subdataset.
+    assert "CACHE_URL=https://github.com/dandi-cache/my-cache.git" in rendered
     assert "CACHE_OUTPUTS=(a.jsonl b.jsonl)" in rendered
     assert "INPUT_BRANCHES=(derivatives min)" in rendered
     assert "OPERATION_SCRIPT=code/update.py" in rendered

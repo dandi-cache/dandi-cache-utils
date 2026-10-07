@@ -377,6 +377,7 @@ def as_shell(config: CacheConfig, /, *, operation: str = DEFAULT_OPERATION) -> s
         f"CACHE_NAME={shlex.quote(config.name)}",
         f"CACHE_FILE_STEM={shlex.quote(config.file_stem)}",
         f"CACHE_IMAGE={shlex.quote(config.image)}",
+        f"CACHE_URL={shlex.quote(REPOSITORY_URL_TEMPLATE.format(organization=ORGANIZATION, name=config.name))}",
         _shell_array("CACHE_OUTPUTS", config.outputs),
         _shell_array("INPUT_PATHS", [input_cache.path for input_cache in config.inputs]),
         _shell_array("INPUT_URLS", [input_cache.url for input_cache in config.inputs]),
