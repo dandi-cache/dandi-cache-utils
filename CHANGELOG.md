@@ -12,6 +12,15 @@
 
 ### 🚀 Enhancement
 
+- A third failure policy, `RETRY`, publishes a failure and still selects the item again later.
+  `SKIP` retried but left nothing for a consumer to see, and `RECORD` published but never retried, so a cache that had to report a timeout and also try the file again had to write its own frontier.
+  `retry_when` says which recorded values are worth another attempt, and those come after every item never tried, so a file that fails every time cannot hold the rest of the backlog back.
+  `select_new` takes the same `retry_when`.
+- `failure_value` may be a callable, called with the item and its error scope, so a recorded failure can say what went wrong.
+- Added `run_isolated`, which runs one call in a forked child process under a timeout.
+  A read that stalls inside `h5py` cannot be interrupted safely in the process that made it, and a slow file would otherwise hold up its whole batch.
+  It raises `TimeoutError` past the limit, the call's own exception when it fails, and `ChildProcessError` when the child dies without answering.
+
 - Every operation declares how much work one run does. `[operations.<name>] limit` is how much of the backlog a scheduled run gets through, and the new `testing_limit` is the smallest batch that still exercises that operation end to end.
   A testing run was previously a single organization-wide `TESTING_LIMIT = 10` whatever the cache did, which is far too many items for a cache that streams an NWB file each time and too few to exercise one that reads a manifest.
   `TESTING_LIMIT` is gone with it: both numbers are read from `cache.toml` and nowhere else. An operation that declares no `testing_limit` runs its ordinary batch under `--testing`, which then changes only where it writes.

@@ -42,6 +42,7 @@ from ._config import (
     read_config,
 )
 from ._dataset import CacheDataset
+from ._isolation import run_isolated
 from ._jsonl import (
     compress,
     compress_derivatives,
@@ -57,6 +58,7 @@ from ._logs import ErrorLog, StagedErrorLog, configure_logging, logger, peak_mem
 from ._runner import (
     NOTHING,
     RECORD,
+    RETRY,
     SKIP,
     BatchResult,
     run_full_rebuild,
@@ -77,6 +79,7 @@ __all__ = [
     "NOTHING",
     "Operation",
     "RECORD",
+    "RETRY",
     "SKIP",
     "StagedErrorLog",
     "__version__",
@@ -103,6 +106,7 @@ __all__ = [
     "read_records",
     "run_full_rebuild",
     "run_incremental_update",
+    "run_isolated",
     "s3",
     "select_new",
     "select_stale",

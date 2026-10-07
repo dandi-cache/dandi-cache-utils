@@ -12,14 +12,18 @@ one; what each of those runs writes is still the complete cache. Applying the ca
 instead would publish a truncated file and delete the rest of the cache from every consumer, which
 is why there is nowhere in this module to do it.
 
-Two failure policies are in use across the organization and both are supported explicitly,
-because choosing the wrong one is a real bug:
+Three failure policies are supported explicitly, because choosing the wrong one is a real bug:
 
 - `skip` leaves a failed item unrecorded so a later run retries it. Correct when the work is
   known to be possible and a failure is almost always transient, e.g. a network read of a file
   that upstream already opened successfully.
 - `record` writes `failure_value` for the item so it is never retried. Correct when the failure
   *is* the answer, e.g. a file that cannot be validated does not qualify.
+- `retry` writes `failure_value` too, so the failure and its reason are published, but selects the
+  item again on a later run once every item never tried has had its turn. Correct when a consumer
+  needs to see what failed and why, and the failure may still clear, e.g. a walk that timed out.
+  `retry_when` says which recorded values are failures worth another attempt, since a cache can
+  publish a permanent failure beside a transient one.
 """
 
 import dataclasses
@@ -34,6 +38,7 @@ from ._logs import StagedErrorLog, logger, peak_memory_mib
 
 SKIP = "skip"
 RECORD = "record"
+RETRY = "retry"
 
 #: Returned by an operation to mean "there is nothing to record for this item".
 NOTHING = object()
@@ -61,13 +66,21 @@ def select_new(
     /,
     *,
     limit: int | None = None,
+    retry_when: typing.Callable[[typing.Any], bool] | None = None,
 ) -> list:
     """The items in `universe` not already recorded, sorted, capped at `limit`.
 
     Sorting matters: iterating a `set` gives a different batch on every run, so a failing item can
     silently rotate in and out of the batch instead of being seen and fixed.
+
+    With `retry_when`, `recorded` is a mapping, and the items of `universe` it records with a value
+    `retry_when` accepts follow the unrecorded ones, sorted too. They come last so that an item
+    which fails every time it is tried cannot hold back the items that have never been tried.
     """
+    universe = list(universe)
     frontier = sorted(item for item in universe if item not in recorded)
+    if retry_when is not None:
+        frontier += sorted(item for item in universe if item in recorded and retry_when(recorded[item]))
     return frontier if limit is None else list(itertools.islice(frontier, limit))
 
 
@@ -104,6 +117,7 @@ def run_incremental_update(
     recorded: typing.MutableMapping | None = None,
     on_failure: str = SKIP,
     failure_value: typing.Any = False,
+    retry_when: typing.Callable[[typing.Any], bool] | None = None,
     on_error: typing.Callable[[typing.Any, typing.Any], None] | None = None,
     on_write: typing.Callable[[], None] | None = None,
     describe: typing.Callable[[typing.Any], str] | None = None,
@@ -123,19 +137,25 @@ def run_incremental_update(
     log, and anything put in `item.context` is reported with it, so a failure names the asset it was
     working on rather than only the item's key. Returning `NOTHING` records nothing for the item
     without counting as a failure.
+    `failure_value` is written for a failure under `RECORD` and `RETRY`. When it is callable, it is
+    called as `failure_value(item, scope)` and its result written instead, so the record can say
+    what went wrong: `scope.exception` is what was raised. `retry_when(value)` says which recorded
+    values `RETRY` selects again, and is required with it.
     `on_error(item, scope)` is called for each failure, for caches that keep side outputs about
     why an item failed, and `on_write()` after each write of the cache itself, for caches that keep
     those side outputs in files of their own and need all of them to land together.
 
     Returns the full `{item: value}` mapping and a `BatchResult` describing the batch.
     """
-    if on_failure not in (SKIP, RECORD):
-        raise ValueError(f"on_failure must be {SKIP!r} or {RECORD!r}, got {on_failure!r}.")
+    if on_failure not in (SKIP, RECORD, RETRY):
+        raise ValueError(f"on_failure must be {SKIP!r}, {RECORD!r} or {RETRY!r}, got {on_failure!r}.")
+    if (on_failure == RETRY) != (retry_when is not None):
+        raise ValueError("`retry_when` is required with `on_failure=RETRY`, and means nothing without it.")
     if (candidates is None) == (batch is None):
         raise ValueError("Pass either `candidates`, to select the unrecorded ones, or `batch`, already selected.")
 
     records = dataset.read_output_lookup(output) if recorded is None else recorded
-    batch = list(batch) if candidates is None else select_new(candidates, records, limit=limit)
+    batch = list(batch) if candidates is None else select_new(candidates, records, limit=limit, retry_when=retry_when)
 
     result = BatchResult(considered=len(batch))
     staged_errors = StagedErrorLog(
@@ -161,9 +181,11 @@ def run_incremental_update(
             # -- need to record something about a failure too, not only the failure value itself.
             if on_error is not None:
                 on_error(item, scope)
-            if on_failure == RECORD:
-                records[item] = failure_value
+            if on_failure in (RECORD, RETRY):
+                records[item] = failure_value(item, scope) if callable(failure_value) else failure_value
                 result.processed += 1
+                if on_failure == RETRY:
+                    logger.warning("%s: recorded the failure; a later run retries it.", progress)
             else:
                 logger.warning("%s: leaving unrecorded for a later run to retry.", progress)
         elif value is NOTHING:
