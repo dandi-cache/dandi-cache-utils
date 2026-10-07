@@ -14,7 +14,7 @@
 
 - The pipeline can leave publishing `dist` to a later step. With `PUBLISH_DIST=false` it stages the same files it would have pushed, the compressed declared outputs and `dataset_description.json`, and reports their directory as the `dist-directory` step output.
   That lets `dandi-cache-action` publish them with [`dist-bundle-action`](https://github.com/CodyCBakerPhD/dist-bundle-action) and its `files` format, which writes the same tree, so every consumer URL stays as it is.
-  Without the variable the pipeline pushes `dist` itself, as before, so a cache on an older action is unaffected.
+  Without the variable the pipeline pushes `dist` itself, as before, so a cache on an older action is unaffected. ([#24](https://github.com/dandi-cache/dandi-cache-utils/pull/24))
 
 - A third failure policy, `RETRY`, publishes a failure and still selects the item again later.
   `SKIP` retried but left nothing for a consumer to see, and `RECORD` published but never retried, so a cache that had to report a timeout and also try the file again had to write its own frontier.
