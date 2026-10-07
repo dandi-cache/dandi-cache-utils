@@ -187,6 +187,90 @@ def test_a_recorded_failure_is_never_retried(dataset):
 
 
 @pytest.mark.ai_generated
+def test_retryable_items_follow_the_untried_ones():
+    recorded = {"a": "ok", "b": "timeout", "c": "not_hdf5", "e": "timeout"}
+
+    batch = dandi_cache.select_new(
+        ["e", "d", "c", "b", "a", "f"], recorded, retry_when=lambda value: value == "timeout"
+    )
+
+    assert batch == ["d", "f", "b", "e"]
+    assert dandi_cache.select_new(["e", "d", "b"], recorded, limit=2, retry_when=lambda value: value == "timeout") == [
+        "d",
+        "b",
+    ]
+
+
+@pytest.mark.ai_generated
+def test_a_retried_failure_is_published_and_selected_again(dataset):
+    attempts = {"b": 0}
+
+    def process(item):
+        if item == "b":
+            attempts["b"] += 1
+            if attempts["b"] == 1:
+                raise TimeoutError("exceeded 20 s")
+        return {"status": "ok"}
+
+    def failure(item, scope):
+        return {"status": "timeout", "reason": str(scope.exception)}
+
+    records, result = dandi_cache.run_incremental_update(
+        dataset,
+        candidates=["a", "b"],
+        process=process,
+        on_failure=dandi_cache.RETRY,
+        failure_value=failure,
+        retry_when=lambda value: value["status"] == "timeout",
+    )
+
+    assert records["b"] == {"status": "timeout", "reason": "exceeded 20 s"}
+    assert result.failed == 1
+    assert result.succeeded == 1
+    assert dataset.read_output_lookup()["b"] == {"status": "timeout", "reason": "exceeded 20 s"}
+
+    again, second = dandi_cache.run_incremental_update(
+        dataset,
+        candidates=["a", "b"],
+        process=process,
+        on_failure=dandi_cache.RETRY,
+        failure_value=failure,
+        retry_when=lambda value: value["status"] == "timeout",
+    )
+
+    assert second.considered == 1
+    assert again["b"] == {"status": "ok"}
+
+
+@pytest.mark.ai_generated
+def test_a_recorded_failure_can_say_what_went_wrong(dataset):
+    def process(item):
+        raise ValueError(f"{item} is not an HDF5 file")
+
+    records, _result = dandi_cache.run_incremental_update(
+        dataset,
+        candidates=["a"],
+        process=process,
+        on_failure=dandi_cache.RECORD,
+        failure_value=lambda item, scope: {"reason": str(scope.exception)},
+    )
+
+    assert records == {"a": {"reason": "a is not an HDF5 file"}}
+
+
+@pytest.mark.ai_generated
+@pytest.mark.parametrize(
+    ("on_failure", "retry_when"),
+    [(dandi_cache.RETRY, None), (dandi_cache.SKIP, bool), (dandi_cache.RECORD, bool)],
+)
+def test_retry_when_goes_with_the_retry_policy_only(dataset, on_failure, retry_when):
+    with pytest.raises(ValueError, match="retry_when"):
+        dandi_cache.run_incremental_update(
+            dataset, candidates=["a"], process=lambda item: 1, on_failure=on_failure, retry_when=retry_when
+        )
+
+
+@pytest.mark.ai_generated
 def test_a_failure_is_written_to_the_staged_error_log(dataset):
     def process(item, scope):
         scope.stage = "opening the NWB file"

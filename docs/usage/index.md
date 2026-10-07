@@ -185,8 +185,28 @@ The one thing {func}`~dandi_cache_utils.run_incremental_update` will not guess:
   Right when the work is known to be possible and a failure is almost always transient — a network read.
 - **`dandi_cache.RECORD`** writes `failure_value`, so the item is never retried.
   Right when the failure *is* the answer — a file that does not validate.
+- **`dandi_cache.RETRY`** writes `failure_value` as well, so the failure and its reason are published, and selects the item again on a later run.
+  `retry_when` says which recorded values are worth another attempt, and those come after every item never tried.
+  Right when a consumer needs to see what failed and the failure may still clear — a walk that timed out.
 
-Both are correct for different caches and choosing wrongly is a real bug, so the shared runner asks for the choice rather than picking one quietly.
+All three are correct for different caches and choosing wrongly is a real bug, so the shared runner asks for the choice rather than picking one quietly.
+
+`failure_value` may be a callable.
+It is called with the item and its error scope, and `scope.exception` is what was raised, so the recorded value can say why.
+
+### Bounding one item's time
+
+A file that takes far longer than its neighbours holds up the whole batch, and a stalled read inside `h5py` cannot be interrupted safely in the process that made it.
+{func}`~dandi_cache_utils.run_isolated` runs one call in a forked child process and kills it past `timeout_seconds`, raising `TimeoutError`:
+
+```python
+def measure(content_id, item):
+    item.stage = "reading the NWB file"
+    return dandi_cache.run_isolated(walk, arguments=(content_id,), timeout_seconds=20 * 60)
+```
+
+The call's own exception is raised as it was, and a child that dies without answering raises `ChildProcessError`.
+The result crosses back by pickling, so it should be plain data.
 
 ### Choosing the link policy
 
