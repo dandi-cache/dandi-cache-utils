@@ -45,6 +45,7 @@ Each cache is one repository with three branches, and that has not changed:
 - **`derivatives`** is a persistent [DataLad](https://www.datalad.org/) dataset on its own branch.
   Each update is recorded there with `datalad containers-run`, so every revision carries the exact command, the input subdataset commits, the output diff, the runtime image digest, and the run's own log under `logs/`.
 - **`dist`** is the lightweight, force-recreated publication artifact that downstream users read.
+  The pipeline stages it, and `dandi-cache-action` publishes it as a single commit with [`dist-bundle-action`](https://github.com/CodyCBakerPhD/dist-bundle-action).
   Only the outputs `cache.toml` declares are published to it.
 
 ## How the vendoring works

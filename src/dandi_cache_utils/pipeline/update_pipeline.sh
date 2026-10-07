@@ -37,6 +37,9 @@
 #                `limit` in `cache.toml`.
 #   GITHUB_SHA   Recorded in the provenance message to link results to the code commit.
 #   RUNNER_TEMP  Scratch directory for the working clones (default: /tmp).
+#   PUBLISH_DIST "false" stages the `dist` content without pushing it, and reports the directory as
+#                the `dist-directory` step output, for a later step to publish. Anything else pushes
+#                it here, as every cache did before that step existed.
 #   DANDI_CACHE_UTILS_DIR  The installable source tree this script was extracted with (default:
 #                three levels above this script, which is where it sits inside the package).
 set -euo pipefail
@@ -48,6 +51,7 @@ OPERATION="${OPERATION:-update}"
 TESTING="${TESTING:-}"
 LIMIT="${LIMIT:-}"
 GITHUB_SHA="${GITHUB_SHA:-unknown}"
+PUBLISH_DIST="${PUBLISH_DIST:-true}"
 
 BOT_NAME="github-actions[bot]"
 BOT_EMAIL="github-actions[bot]@users.noreply.github.com"
@@ -354,6 +358,15 @@ if [ "${published}" -eq 0 ]; then
 fi
 
 cp "${DS}/dataset_description.json" "${DISTDIR}/dataset_description.json"
+
+if [ "${PUBLISH_DIST}" = "false" ]; then
+  echo "Staged 'dist' in ${DISTDIR} for a later step to publish."
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "dist-directory=${DISTDIR}" >> "${GITHUB_OUTPUT}"
+  fi
+  exit 0
+fi
+
 git -C "${DISTDIR}" init -q -b dist
 git -C "${DISTDIR}" config user.name "${BOT_NAME}"
 git -C "${DISTDIR}" config user.email "${BOT_EMAIL}"
