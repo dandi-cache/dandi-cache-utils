@@ -17,8 +17,8 @@ from . import _jsonl
 from ._config import DEFAULT_OPERATION, CacheConfig, InputCache, load_config
 from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
-#: The shards a split output is written across, one per leading hexadecimal digit of its keys. A
-#: content ID is a UUID, so its first digit spreads a cache's entries evenly over all sixteen.
+#: The files an output declared in `cache.split` is kept as, one per leading hexadecimal digit of its
+#: keys. A content ID is a UUID, so its first digit spreads a cache's entries evenly over all sixteen.
 SPLIT_PREFIXES = "0123456789abcdef"
 
 TESTING_FILE_PREFIX = "testing_"
@@ -102,9 +102,9 @@ class CacheDataset:
         """
         input_cache: InputCache = self.config.only_input if name is None else self.config.input(name)
         file_path = self.input_file_path(name)
-        # An upstream that outgrew one file publishes it split across sixteen. Reading those whenever
+        # An upstream that outgrew one file keeps it split across sixteen. Reading those whenever
         # the single file is absent means a downstream cache needs no change, before or after.
-        shard_paths = [file_path.with_name(shard) for shard in self.split_output_names(file_path.name)]
+        shard_paths = self._shard_paths(file_path)
         if not file_path.exists() and any(shard_path.exists() for shard_path in shard_paths):
             return _jsonl.read_split_input(shard_paths, format=input_cache.format)
         return _jsonl.read_input(file_path, format=input_cache.format, required=required)
@@ -121,86 +121,81 @@ class CacheDataset:
         """Read this cache's own prior output as a `{key: value}` mapping.
 
         This is the basis of every incremental update: what is already recorded here is what the
-        run does not need to do again.
+        run does not need to do again. A split output is read from its sixteen files, or from the
+        single file when there are none yet, which is the whole of its first run's migration.
         """
-        return _jsonl.read_lookup(self.output_file_path(name))
+        file_path = self.output_file_path(name)
+        shard_paths = self._shard_paths(file_path)
+        if any(shard_path.exists() for shard_path in shard_paths) and (
+            file_path.name.removeprefix(self.log_prefix) in self.config.split or not file_path.exists()
+        ):
+            return _jsonl.read_split_input(shard_paths, format="lookup")
+        return _jsonl.read_lookup(file_path)
 
     def write_output_lookup(self, records: dict, name: str | None = None, /) -> pathlib.Path:
-        """Write a `{key: value}` mapping to one of this cache's declared outputs."""
+        """Write a `{key: value}` mapping to one of this cache's declared outputs.
+
+        An output declared in `cache.split` is written across its sixteen files instead, and the
+        returned path is the one file `dist` publishes it as.
+        """
         file_path = self.output_file_path(name)
-        _jsonl.write_lookup(file_path, records)
+        if self._is_split(file_path):
+            shards: dict[str, dict] = {prefix: {} for prefix in SPLIT_PREFIXES}
+            for key in records:
+                shards[self._shard_of(key, file_path)][key] = records[key]
+            for prefix, shard_path in zip(SPLIT_PREFIXES, self._shard_paths(file_path), strict=True):
+                _jsonl.write_lookup(shard_path, shards[prefix])
+        else:
+            _jsonl.write_lookup(file_path, records)
+        self._remove_other_layout(file_path)
         return file_path
 
-    def split_output_names(self, name: str, /) -> list[str]:
-        """The files one split output is written across: `<stem>_0.jsonl` to `<stem>_f.jsonl`.
+    def write_output_records(self, records: list, name: str | None = None, /) -> pathlib.Path:
+        """Write a list of records, one JSON value per line, to one of this cache's outputs.
 
-        A file on a plain-git branch cannot pass GitHub's 100 MiB limit, so an output that would is
-        split by the first digit of its keys. Each of these names is declared in `cache.toml`'s
-        `outputs`, like any other, which is what publishes it.
+        For an output declared in `cache.split`, each record must be a single-key object, and goes
+        to the file its key's first digit names, in the order given.
         """
+        file_path = self.output_file_path(name)
+        if self._is_split(file_path):
+            shards: dict[str, list] = {prefix: [] for prefix in SPLIT_PREFIXES}
+            for record in records:
+                if not isinstance(record, dict) or len(record) != 1:
+                    raise ValueError(f"A split output holds single-key records; {file_path.name} was given {record!r}.")
+                shards[self._shard_of(next(iter(record)), file_path)].append(record)
+            for prefix, shard_path in zip(SPLIT_PREFIXES, self._shard_paths(file_path), strict=True):
+                _jsonl.write_records(shard_path, shards[prefix])
+        else:
+            _jsonl.write_records(file_path, records)
+        self._remove_other_layout(file_path)
+        return file_path
+
+    @staticmethod
+    def split_output_names(name: str, /) -> list[str]:
+        """The sixteen files a split output is kept as: `<stem>_0.jsonl` to `<stem>_f.jsonl`."""
         path = pathlib.PurePosixPath(name)
         return [f"{path.stem}_{prefix}{path.suffix}" for prefix in SPLIT_PREFIXES]
 
-    def read_split_output_lookup(self, name: str, /) -> dict:
-        """Read a split output back as one `{key: value}` mapping.
+    def _is_split(self, file_path: pathlib.Path, /) -> bool:
+        return file_path.name.removeprefix(self.log_prefix) in self.config.split
 
-        Before the first split write there are no shards, only the single file the cache used to
-        publish, so that is read instead. That is the whole migration.
-        """
-        shard_paths = [self.output_file_path(shard) for shard in self.split_output_names(name)]
-        if not any(shard_path.exists() for shard_path in shard_paths):
-            return _jsonl.read_lookup(self._unsplit_path(name))
-        records: dict = {}
-        for shard_path in shard_paths:
-            records.update(_jsonl.read_lookup(shard_path))
-        return records
+    def _shard_paths(self, file_path: pathlib.Path, /) -> list[pathlib.Path]:
+        return [file_path.with_name(shard) for shard in self.split_output_names(file_path.name)]
 
-    def write_split_output_lookup(self, records: dict, name: str, /) -> list[pathlib.Path]:
-        """Write a `{key: value}` mapping across the split output's files, by the first digit of each key.
+    @staticmethod
+    def _shard_of(key, file_path: pathlib.Path, /) -> str:
+        prefix = str(key)[:1].lower()
+        if prefix not in SPLIT_PREFIXES or not prefix:
+            raise ValueError(
+                f"{key!r} does not start with a hexadecimal digit, so it belongs to none of the files "
+                f"{file_path.name} is split across. Only a cache keyed by content ID can be split."
+            )
+        return prefix
 
-        Every shard is written, an empty one included, so a consumer can always fetch all sixteen.
-        """
-        shards: dict[str, dict] = {prefix: {} for prefix in SPLIT_PREFIXES}
-        for key, value in records.items():
-            prefix = str(key)[:1].lower()
-            if prefix not in shards:
-                raise ValueError(
-                    f"{key!r} does not start with a hexadecimal digit, so it belongs to no shard of {name}."
-                )
-            shards[prefix][key] = value
-        file_paths = []
-        for prefix, shard in zip(SPLIT_PREFIXES, self.split_output_names(name), strict=True):
-            file_path = self.output_file_path(shard)
-            _jsonl.write_lookup(file_path, shards[prefix])
-            file_paths.append(file_path)
-        self._unsplit_path(name).unlink(missing_ok=True)
-        return file_paths
-
-    def write_split_output_records(self, records: list, name: str, /) -> list[pathlib.Path]:
-        """Write single-key records across the split output's files by the first digit of each key, in order."""
-        shards: dict[str, list] = {prefix: [] for prefix in SPLIT_PREFIXES}
-        for record in records:
-            ((key, _value),) = record.items()
-            prefix = str(key)[:1].lower()
-            if prefix not in shards:
-                raise ValueError(
-                    f"{key!r} does not start with a hexadecimal digit, so it belongs to no shard of {name}."
-                )
-            shards[prefix].append(record)
-        file_paths = []
-        for prefix, shard in zip(SPLIT_PREFIXES, self.split_output_names(name), strict=True):
-            file_path = self.output_file_path(shard)
-            _jsonl.write_records(file_path, shards[prefix])
-            file_paths.append(file_path)
-        self._unsplit_path(name).unlink(missing_ok=True)
-        return file_paths
-
-    def _unsplit_path(self, name: str, /) -> pathlib.Path:
-        """Where the single file a split output replaces was written; a split write removes it."""
-        return self.derivatives_directory / f"{self.log_prefix}{name}"
-
-    def write_output_records(self, records: list, name: str | None = None, /) -> pathlib.Path:
-        """Write a list of records, one JSON value per line, to one of this cache's outputs."""
-        file_path = self.output_file_path(name)
-        _jsonl.write_records(file_path, records)
-        return file_path
+    def _remove_other_layout(self, file_path: pathlib.Path, /) -> None:
+        """Remove what the output was kept as before, so a split, or its undoing, leaves one copy."""
+        if self._is_split(file_path):
+            file_path.unlink(missing_ok=True)
+        else:
+            for shard_path in self._shard_paths(file_path):
+                shard_path.unlink(missing_ok=True)

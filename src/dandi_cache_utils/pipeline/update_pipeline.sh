@@ -329,6 +329,12 @@ datalad containers-run -n pipeline --explicit \
   -m "${OPERATION_LABEL} ${CACHE_NAME} (code @ ${GITHUB_SHA}; image ${DIGEST})" \
   "python /workspace/${OPERATION_SCRIPT} --base-directory /tmp${RUN_ARGUMENTS}"
 
+# GitHub refuses a push carrying any file over 100 MiB, and says so only after the upload. Check
+# first, so a file approaching the limit is reported while there is still room -- as an annotation,
+# and as the `size-warnings` output the action notifies on -- and one past it stops the run here with
+# what to do about it.
+dandi_cache check-sizes "${DS}"
+
 # Publish the full results to the `derivatives` branch.
 push_with_retry "${DS}" derivatives HEAD
 
@@ -358,6 +364,10 @@ if [ "${published}" -eq 0 ]; then
 fi
 
 cp "${DS}/dataset_description.json" "${DISTDIR}/dataset_description.json"
+
+# The same check for what `dist` is about to publish, compressed: an output split across sixteen
+# files on `derivatives` is still one file here.
+dandi_cache check-sizes "${DISTDIR}" --output-name dist-size-warnings
 
 if [ "${PUBLISH_DIST}" = "false" ]; then
   echo "Staged 'dist' in ${DISTDIR} for a later step to publish."

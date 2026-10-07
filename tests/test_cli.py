@@ -85,6 +85,61 @@ def test_compress_writes_one_archive_per_derivative(tmp_path):
     assert (derivatives / "example.jsonl.gz").is_file() is True
 
 
+LIMIT = dandi_cache_utils.GITHUB_FILE_LIMIT_BYTES
+
+
+def _sized(path: pathlib.Path, size: int, /) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as stream:
+        stream.truncate(size)
+
+
+@pytest.mark.ai_generated
+def test_check_sizes_passes_quietly_when_every_file_is_small(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    (tmp_path / "derivatives").mkdir()
+    (tmp_path / "derivatives" / "cache.jsonl").write_text("{}\n")
+
+    result = invoke("check-sizes", str(tmp_path))
+
+    assert result.exit_code == 0
+    assert "No file under" in result.output
+
+
+@pytest.mark.ai_generated
+def test_check_sizes_warns_near_the_limit_and_reports_it_as_a_step_output(tmp_path, monkeypatch):
+    output = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
+    _sized(tmp_path / "dataset" / "derivatives" / "cache.jsonl", int(0.9 * LIMIT))
+
+    result = invoke("check-sizes", str(tmp_path / "dataset"))
+
+    assert result.exit_code == 0
+    assert "::warning" in result.output
+    assert "Declare `cache.jsonl` in `split`" in result.output
+    assert output.read_text().startswith("size-warnings<<SIZE_WARNINGS_END\nderivatives/cache.jsonl is ")
+    assert "derivatives/cache.jsonl" in (tmp_path / "summary.md").read_text()
+
+
+@pytest.mark.ai_generated
+def test_check_sizes_fails_past_the_limit_and_skips_nested_repositories(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    _sized(tmp_path / "logs" / "errors.txt", LIMIT + 1)
+    # An input subdataset is its own repository, and a push of this one does not upload it.
+    (tmp_path / "sourcedata" / "upstream").mkdir(parents=True)
+    (tmp_path / "sourcedata" / "upstream" / ".git").write_text("gitdir: elsewhere\n")
+    _sized(tmp_path / "sourcedata" / "upstream" / "derivatives" / "big.jsonl", LIMIT + 1)
+
+    result = invoke("check-sizes", str(tmp_path))
+
+    assert result.exit_code == 1
+    assert "::error" in result.output
+    assert "logs/errors.txt" in result.output
+    assert "big.jsonl" not in result.output
+
+
 @pytest.mark.ai_generated
 def test_a_missing_config_is_rejected_by_the_command_line():
     result = invoke("config", "show", "no/such/cache.toml")

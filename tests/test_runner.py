@@ -497,7 +497,8 @@ def split_dataset(tmp_path) -> CacheDataset:
         {
             "cache": {
                 "name": "my-cache",
-                "outputs": ["my_cache.jsonl", *(f"my_cache_messages_{prefix}.jsonl" for prefix in "0123456789abcdef")],
+                "outputs": ["my_cache.jsonl", "my_cache_messages.jsonl"],
+                "split": ["my_cache_messages.jsonl"],
             },
         },
         directory=tmp_path,
@@ -505,39 +506,39 @@ def split_dataset(tmp_path) -> CacheDataset:
     return CacheDataset(config=cache_config, base_directory=tmp_path)
 
 
+def _shard(dataset: CacheDataset, prefix: str, /) -> pathlib.Path:
+    return dataset.derivatives_directory / f"{dataset.log_prefix}my_cache_messages_{prefix}.jsonl"
+
+
 @pytest.mark.ai_generated
 def test_a_split_output_is_written_by_first_digit_and_read_back_whole(split_dataset):
-    records = {"0a": {"messages": ["x"]}, "0b": 1, "f9": [2], "A1": "upper case goes to the a shard"}
+    records = {"0a": {"messages": ["x"]}, "0b": 1, "f9": [2], "A1": "upper case goes to the a file"}
 
-    file_paths = split_dataset.write_split_output_lookup(records, "my_cache_messages.jsonl")
+    file_path = split_dataset.write_output_lookup(records, "my_cache_messages.jsonl")
 
-    assert [path.name for path in file_paths] == [f"my_cache_messages_{prefix}.jsonl" for prefix in "0123456789abcdef"]
-    assert dandi_cache.read_lookup(split_dataset.output_file_path("my_cache_messages_0.jsonl")) == {
-        "0a": {"messages": ["x"]},
-        "0b": 1,
-    }
-    assert dandi_cache.read_lookup(split_dataset.output_file_path("my_cache_messages_a.jsonl")) == {
-        "A1": "upper case goes to the a shard"
-    }
-    # An empty shard is still written, so a consumer can always fetch all sixteen.
-    assert split_dataset.output_file_path("my_cache_messages_5.jsonl").read_text() == ""
-    assert split_dataset.read_split_output_lookup("my_cache_messages.jsonl") == records
+    assert file_path == split_dataset.derivatives_directory / "my_cache_messages.jsonl"
+    assert not file_path.exists()
+    assert dandi_cache.read_lookup(_shard(split_dataset, "0")) == {"0a": {"messages": ["x"]}, "0b": 1}
+    assert dandi_cache.read_lookup(_shard(split_dataset, "a")) == {"A1": "upper case goes to the a file"}
+    # An empty file is still written, so the set of files never depends on the data.
+    assert _shard(split_dataset, "5").read_text() == ""
+    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == records
 
 
 @pytest.mark.ai_generated
-def test_a_split_output_refuses_a_key_with_no_shard(split_dataset):
+def test_a_split_output_refuses_a_key_with_no_hexadecimal_first_digit(split_dataset):
     with pytest.raises(ValueError, match="hexadecimal"):
-        split_dataset.write_split_output_lookup({"zz": 1}, "my_cache_messages.jsonl")
+        split_dataset.write_output_lookup({"zz": 1}, "my_cache_messages.jsonl")
 
 
 @pytest.mark.ai_generated
-def test_every_shard_of_a_split_output_must_be_declared(dataset):
-    with pytest.raises(KeyError, match="not a declared output"):
-        dataset.write_split_output_lookup({"0a": 1}, "my_cache_messages.jsonl")
+def test_only_a_declared_output_can_be_split(tmp_path):
+    with pytest.raises(ValueError, match="only an output can be split"):
+        dandi_cache.parse_config({"cache": {"name": "my-cache", "split": ["other.jsonl"]}}, directory=tmp_path)
 
 
 @pytest.mark.ai_generated
-def test_a_split_update_migrates_the_single_file_and_removes_it(split_dataset):
+def test_an_update_of_a_newly_split_output_migrates_the_single_file_and_removes_it(split_dataset):
     single = split_dataset.derivatives_directory / "my_cache_messages.jsonl"
     dandi_cache.write_lookup(single, {"0a": 1, "fb": 2})
 
@@ -546,27 +547,50 @@ def test_a_split_update_migrates_the_single_file_and_removes_it(split_dataset):
         candidates=["0a", "fb", "c1"],
         process=lambda item: 3,
         output="my_cache_messages.jsonl",
-        split=True,
     )
 
     assert result.considered == 1
     assert records == {"0a": 1, "fb": 2, "c1": 3}
     assert not single.exists()
-    assert split_dataset.read_split_output_lookup("my_cache_messages.jsonl") == records
+    assert dandi_cache.read_lookup(_shard(split_dataset, "c")) == {"c1": 3}
+    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == records
 
 
 @pytest.mark.ai_generated
-def test_a_split_rebuild_writes_each_record_to_its_shard(tmp_path):
+def test_undeclaring_a_split_joins_the_output_back_into_one_file(split_dataset, tmp_path):
+    split_dataset.write_output_lookup({"0a": 1, "fb": 2}, "my_cache_messages.jsonl")
+    unsplit = dataclasses.replace(split_dataset, config=dataclasses.replace(split_dataset.config, split=()))
+
+    assert unsplit.read_output_lookup("my_cache_messages.jsonl") == {"0a": 1, "fb": 2}
+    unsplit.write_output_lookup({"0a": 1, "fb": 2}, "my_cache_messages.jsonl")
+
+    assert not any(_shard(split_dataset, prefix).exists() for prefix in "0123456789abcdef")
+    assert dandi_cache.read_lookup(tmp_path / "derivatives" / "my_cache_messages.jsonl") == {"0a": 1, "fb": 2}
+
+
+@pytest.mark.ai_generated
+def test_a_split_output_in_testing_mode_never_touches_the_real_files(split_dataset):
+    testing = dataclasses.replace(split_dataset, testing=True)
+
+    testing.write_output_lookup({"0a": 1}, "my_cache_messages.jsonl")
+
+    assert dandi_cache.read_lookup(_shard(testing, "0")) == {"0a": 1}
+    assert not _shard(split_dataset, "0").exists()
+
+
+@pytest.mark.ai_generated
+def test_a_split_rebuild_writes_each_record_to_its_file(tmp_path):
     cache_config = dandi_cache.parse_config(
-        {"cache": {"name": "my-cache", "outputs": [f"my_cache_{prefix}.jsonl" for prefix in "0123456789abcdef"]}},
+        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"]}},
         directory=tmp_path,
     )
     dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
 
-    dandi_cache.run_full_rebuild(dataset, build=lambda: [{"0a": 1}, {"f1": 2}, {"0b": 3}], split=True)
+    dandi_cache.run_full_rebuild(dataset, build=lambda: [{"0a": 1}, {"f1": 2}, {"0b": 3}])
 
-    assert dandi_cache.read_records(dataset.output_file_path("my_cache_0.jsonl")) == [{"0a": 1}, {"0b": 3}]
-    assert dandi_cache.read_records(dataset.output_file_path("my_cache_f.jsonl")) == [{"f1": 2}]
+    assert dandi_cache.read_records(tmp_path / "derivatives" / "my_cache_0.jsonl") == [{"0a": 1}, {"0b": 3}]
+    assert dandi_cache.read_records(tmp_path / "derivatives" / "my_cache_f.jsonl") == [{"f1": 2}]
+    assert not (tmp_path / "derivatives" / "my_cache.jsonl").exists()
 
 
 @pytest.mark.ai_generated

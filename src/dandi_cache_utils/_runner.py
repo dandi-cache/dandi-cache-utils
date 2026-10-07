@@ -30,7 +30,6 @@ import dataclasses
 import inspect
 import itertools
 import math
-import pathlib
 import time
 import typing
 
@@ -125,7 +124,6 @@ def run_incremental_update(
     stages: typing.Mapping[str, str] | None = None,
     checkpoint_every: int | None = None,
     write: bool = True,
-    split: bool = False,
 ) -> tuple[dict, BatchResult]:
     """Process a batch of items and write the updated cache.
 
@@ -147,10 +145,6 @@ def run_incremental_update(
     why an item failed, and `on_write()` after each write of the cache itself, for caches that keep
     those side outputs in files of their own and need all of them to land together.
 
-    `split` writes the cache across sixteen files by the first digit of each key, for a cache whose
-    one file would pass GitHub's 100 MiB limit, and reads it back the same way. Its first run reads
-    the single file the cache published before, and removes it.
-
     Returns the full `{item: value}` mapping and a `BatchResult` describing the batch.
     """
     if on_failure not in (SKIP, RECORD, RETRY):
@@ -160,19 +154,7 @@ def run_incremental_update(
     if (candidates is None) == (batch is None):
         raise ValueError("Pass either `candidates`, to select the unrecorded ones, or `batch`, already selected.")
 
-    output_name = output if output is not None else dataset.config.cache_file_name
-
-    def _read() -> dict:
-        return dataset.read_split_output_lookup(output_name) if split else dataset.read_output_lookup(output)
-
-    def _write() -> pathlib.Path:
-        if split:
-            dataset.write_split_output_lookup(records, output_name)
-            # Named for the log line only: the records are in the sixteen files it was split into.
-            return dataset.derivatives_directory / f"{dataset.log_prefix}{output_name}"
-        return dataset.write_output_lookup(records, output)
-
-    records = _read() if recorded is None else recorded
+    records = dataset.read_output_lookup(output) if recorded is None else recorded
     batch = list(batch) if candidates is None else select_new(candidates, records, limit=limit, retry_when=retry_when)
 
     result = BatchResult(considered=len(batch))
@@ -223,7 +205,7 @@ def run_incremental_update(
             )
 
         if write and checkpoint_every and index % checkpoint_every == 0:
-            _write()
+            dataset.write_output_lookup(records, output)
             if on_write is not None:
                 on_write()
             logger.info("%s: checkpointed %d records.", progress, len(records))
@@ -231,7 +213,7 @@ def run_incremental_update(
     result.elapsed_seconds = time.monotonic() - batch_start_time
 
     if write:
-        file_path = _write()
+        file_path = dataset.write_output_lookup(records, output)
         if on_write is not None:
             on_write()
         logger.info(
@@ -252,7 +234,6 @@ def run_full_rebuild(
     *,
     build: typing.Callable[[], typing.Iterable],
     output: str | None = None,
-    split: bool = False,
 ) -> tuple[list, BatchResult]:
     """Write a cache that was recomputed in full, for caches with nothing to resume.
 
@@ -269,13 +250,7 @@ def run_full_rebuild(
     start_time = time.monotonic()
     records = list(build())
 
-    if split:
-        # Each record is one single-key object, so it goes to the shard its key names.
-        output_name = output if output is not None else dataset.config.cache_file_name
-        dataset.write_split_output_records(records, output_name)
-        file_path = dataset.derivatives_directory / f"{dataset.log_prefix}{output_name}"
-    else:
-        file_path = dataset.write_output_records(records, output)
+    file_path = dataset.write_output_records(records, output)
     result = BatchResult(
         considered=len(records),
         processed=len(records),

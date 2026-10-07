@@ -27,6 +27,12 @@ ORGANIZATION = "dandi-cache"
 REPOSITORY_URL_TEMPLATE = "https://github.com/{organization}/{name}.git"
 IMAGE_TEMPLATE = "ghcr.io/{organization}/{name}"
 
+#: GitHub refuses any file over 100 MiB, so a push of `derivatives` carrying one fails outright,
+#: after the whole run's work is done. An output that grows towards it is declared in
+#: `cache.split`, which keeps it on `derivatives` as sixteen files by the first digit of each key;
+#: `dist` still publishes it as one compressed file, which is far smaller.
+GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024
+
 # Caches publish their data on a dedicated branch; their default branch holds only code.
 DEFAULT_INPUT_BRANCH = "derivatives"
 
@@ -85,6 +91,9 @@ class CacheConfig:
     operations: dict[str, Operation]
     #: The BIDS study description, published with the dataset on both `derivatives` and `dist`.
     description: dict = dataclasses.field(default_factory=dict)
+    #: The outputs kept on `derivatives` as sixteen files rather than one, each still published to
+    #: `dist` as one file. See `GITHUB_FILE_LIMIT_BYTES` for why.
+    split: tuple[str, ...] = ()
     #: The repository root, when the config was read from a file; used as the default base directory.
     directory: pathlib.Path | None = None
 
@@ -264,6 +273,12 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
     for output in outputs:
         if not output.endswith(".jsonl"):
             raise ValueError(f"`cache.outputs` entry {output!r} must be a `.jsonl` file name.")
+    split = tuple(cache.get("split", []))
+    for output in split:
+        if output not in outputs:
+            raise ValueError(
+                f"`cache.split` entry {output!r} is not one of `cache.outputs`; only an output can be split."
+            )
 
     inputs = tuple(_parse_input(entry) for entry in raw.get("inputs", []))
     input_paths = [input_cache.path for input_cache in inputs]
@@ -275,6 +290,7 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
         file_stem=file_stem,
         image=cache.get("image", IMAGE_TEMPLATE.format(organization=ORGANIZATION, name=name)),
         outputs=outputs,
+        split=split,
         inputs=inputs,
         operations=_parse_operations(_require_mapping(raw.get("operations", {}), where="operations"), cache_name=name),
         description=_parse_description(
@@ -379,6 +395,7 @@ def describe(config: CacheConfig, /) -> str:
         f"cache:      {config.name}",
         f"image:      {config.image}",
         f"outputs:    {', '.join(config.outputs)}",
+        *([f"split:      {', '.join(config.split)}"] if config.split else []),
         f"operations: {', '.join(sorted(config.operations))}",
     ]
     lines.extend(

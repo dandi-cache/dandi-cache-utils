@@ -114,8 +114,11 @@ def write_ids(file_path: pathlib.Path, identifiers: typing.Iterable, /) -> None:
     write_records(file_path, sorted(identifiers))
 
 
-def compress(file_path: pathlib.Path, /) -> pathlib.Path:
+def compress(file_path: pathlib.Path, /, *, parts: typing.Sequence[pathlib.Path] | None = None) -> pathlib.Path:
     """Gzip one file next to itself and return the compressed path.
+
+    With `parts`, the compressed file is their concatenation, in order, and `file_path` itself need
+    not exist: that is how an output kept as sixteen files is still published as one.
 
     `mtime=0` keeps the gzip header timestamp-free, so unchanged input compresses to a
     byte-identical artifact run after run -- without it, every run republishes `dist` as changed
@@ -123,15 +126,41 @@ def compress(file_path: pathlib.Path, /) -> pathlib.Path:
     """
     compressed_file_path = file_path.parent / f"{file_path.name}.gz"
     with (
-        file_path.open(mode="rb") as source_stream,
         compressed_file_path.open(mode="wb") as raw_target_stream,
         gzip.GzipFile(fileobj=raw_target_stream, mode="wb", mtime=0) as target_stream,
     ):
-        shutil.copyfileobj(fsrc=source_stream, fdst=target_stream)
+        for part in parts if parts is not None else [file_path]:
+            with part.open(mode="rb") as source_stream:
+                shutil.copyfileobj(fsrc=source_stream, fdst=target_stream)
     return compressed_file_path
 
 
+#: The suffixes of the sixteen files one split output is kept as, `<stem>_0.jsonl` to `<stem>_f.jsonl`.
+SPLIT_SUFFIXES = tuple(f"_{prefix}.jsonl" for prefix in "0123456789abcdef")
+
+
 def compress_derivatives(base_directory: pathlib.Path, /) -> list[pathlib.Path]:
-    """Gzip every `derivatives/*.jsonl` file for distribution; return the compressed paths."""
+    """Gzip every `derivatives/*.jsonl` file for distribution; return the compressed paths.
+
+    An output kept as sixteen files, all of `<stem>_0.jsonl` to `<stem>_f.jsonl` with no `<stem>.jsonl`
+    beside them, is compressed as one `<stem>.jsonl.gz`, so `dist` publishes it under the same name
+    as before it was split. Its files are joined in order, which for a lookup is the same sorted
+    file the unsplit output was.
+    """
     derivatives_directory = base_directory / "derivatives"
-    return [compress(jsonl_file_path) for jsonl_file_path in sorted(derivatives_directory.glob("*.jsonl"))]
+    jsonl_file_paths = sorted(derivatives_directory.glob("*.jsonl"))
+    names = {file_path.name for file_path in jsonl_file_paths}
+
+    joined: dict[pathlib.Path, list[pathlib.Path]] = {}
+    for file_path in jsonl_file_paths:
+        if not file_path.name.endswith(SPLIT_SUFFIXES[0]):
+            continue
+        stem = file_path.name.removesuffix(SPLIT_SUFFIXES[0])
+        parts = [derivatives_directory / f"{stem}{suffix}" for suffix in SPLIT_SUFFIXES]
+        if f"{stem}.jsonl" not in names and all(part.name in names for part in parts):
+            joined[derivatives_directory / f"{stem}.jsonl"] = parts
+    in_a_join = {part for parts in joined.values() for part in parts}
+
+    compressed = [compress(file_path, parts=parts) for file_path, parts in joined.items()]
+    compressed += [compress(file_path) for file_path in jsonl_file_paths if file_path not in in_a_join]
+    return sorted(compressed)

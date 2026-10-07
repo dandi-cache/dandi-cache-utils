@@ -12,10 +12,13 @@
 
 ### 🚀 Enhancement
 
-- A cache output can be split across sixteen files by the first digit of its keys, for one that would pass GitHub's 100 MiB limit on a plain-git branch. `run_incremental_update` and `run_full_rebuild` take `split=True`, and `CacheDataset` gains `split_output_names`, `read_split_output_lookup`, `write_split_output_lookup` and `write_split_output_records` for side outputs. Each `<stem>_<digit>.jsonl` is declared in `cache.toml` like any other output.
-  The first split run reads the single file the cache published before, and removes it, so the migration is one run.
-  `read_input` reads an upstream's sixteen files whenever its single file is absent, so a downstream cache needs no change when its input splits ([#24](https://github.com/dandi-cache/dandi-cache-utils/pull/24)).
+- An output listed in `cache.toml`'s new `split` is kept on `derivatives` as sixteen files, `<stem>_0.jsonl` to `<stem>_f.jsonl`, by the first digit of each key, for one that would pass GitHub's 100 MiB limit on a plain-git branch.
+  It is a declaration and nothing more: `read_output_lookup`, `write_output_lookup` and `write_output_records` read and write the sixteen files for such an output, so a cache's code does not change, and the first run after declaring it reads the single file and removes it.
+  `dist` still publishes it as one `<stem>.jsonl.gz`, the sixteen joined in order by `dandi-cache compress`, so no consumer URL changes.
+  `read_input` reads an upstream's sixteen files whenever its single file is absent, so a downstream cache needs no change either ([#24](https://github.com/dandi-cache/dandi-cache-utils/pull/24)).
   `content-id-to-valid-nwb-file` had already stopped publishing, its messages file at 100.5 MiB, and `content-id-to-dandiset-paths` and `content-id-to-usage-dandiset-path` were within days of it.
+- `dandi-cache check-sizes` reports the files under a directory past 80% of GitHub's 100 MiB limit, as GitHub Actions annotations, a step summary and a step output, and fails on any past the limit.
+  The pipeline runs it on `derivatives` before pushing and on `dist` before publishing, so a cache's growth is reported while there is room, and a file too large to push stops the run with what to do rather than GitHub's rejection. ([#24](https://github.com/dandi-cache/dandi-cache-utils/pull/24))
 
 - The pipeline can leave publishing `dist` to a later step. With `PUBLISH_DIST=false` it stages the same files it would have pushed, the compressed declared outputs and `dataset_description.json`, and reports their directory as the `dist-directory` step output.
   That lets `dandi-cache-action` publish them with [`dist-bundle-action`](https://github.com/CodyCBakerPhD/dist-bundle-action) and its `files` format, which writes the same tree, so every consumer URL stays as it is.
