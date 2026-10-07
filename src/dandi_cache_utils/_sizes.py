@@ -68,9 +68,7 @@ def find_large_files(
     for root, directory_names, file_names in os.walk(directory):
         root_path = pathlib.Path(root)
         directory_names[:] = [
-            name
-            for name in directory_names
-            if name != ".git" and not (root_path / name / ".git").exists()
+            name for name in directory_names if name != ".git" and not (root_path / name / ".git").exists()
         ]
         for name in file_names:
             file_path = root_path / name
