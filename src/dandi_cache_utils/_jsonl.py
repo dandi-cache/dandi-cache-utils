@@ -72,6 +72,21 @@ def read_input(file_path: pathlib.Path, /, *, format: str, required: bool = Fals
     return readers[format](file_path, required=required)
 
 
+def read_split_input(file_paths: typing.Sequence[pathlib.Path], /, *, format: str) -> dict | list | set:
+    """Read an input split across several files, in order, as if it were one file of that shape."""
+    if format not in ("lookup", "records", "ids"):
+        raise ValueError(f"Unknown input format {format!r}; expected one of: ids, lookup, records.")
+    parts = [read_input(file_path, format=format) for file_path in file_paths]
+    if format == "lookup":
+        combined: dict = {}
+        for part in parts:
+            combined.update(part)
+        return combined
+    if format == "records":
+        return [record for part in parts for record in part]
+    return set().union(*parts)
+
+
 def write_lookup(file_path: pathlib.Path, records: typing.Mapping, /) -> None:
     """Write a `{key: value}` mapping as one single-key object per line, sorted by key.
 

@@ -489,3 +489,105 @@ def test_the_logs_directory_is_beside_the_derivatives(dataset, tmp_path):
     assert dataset.logs_directory == tmp_path / "logs"
     assert dataset.derivatives_directory == tmp_path / "derivatives"
     assert isinstance(dataset.base_directory, pathlib.Path)
+
+
+@pytest.fixture
+def split_dataset(tmp_path) -> CacheDataset:
+    cache_config = dandi_cache.parse_config(
+        {
+            "cache": {
+                "name": "my-cache",
+                "outputs": ["my_cache.jsonl", *(f"my_cache_messages_{prefix}.jsonl" for prefix in "0123456789abcdef")],
+            },
+        },
+        directory=tmp_path,
+    )
+    return CacheDataset(config=cache_config, base_directory=tmp_path)
+
+
+@pytest.mark.ai_generated
+def test_a_split_output_is_written_by_first_digit_and_read_back_whole(split_dataset):
+    records = {"0a": {"messages": ["x"]}, "0b": 1, "f9": [2], "A1": "upper case goes to the a shard"}
+
+    file_paths = split_dataset.write_split_output_lookup(records, "my_cache_messages.jsonl")
+
+    assert [path.name for path in file_paths] == [f"my_cache_messages_{prefix}.jsonl" for prefix in "0123456789abcdef"]
+    assert dandi_cache.read_lookup(split_dataset.output_file_path("my_cache_messages_0.jsonl")) == {
+        "0a": {"messages": ["x"]},
+        "0b": 1,
+    }
+    assert dandi_cache.read_lookup(split_dataset.output_file_path("my_cache_messages_a.jsonl")) == {
+        "A1": "upper case goes to the a shard"
+    }
+    # An empty shard is still written, so a consumer can always fetch all sixteen.
+    assert split_dataset.output_file_path("my_cache_messages_5.jsonl").read_text() == ""
+    assert split_dataset.read_split_output_lookup("my_cache_messages.jsonl") == records
+
+
+@pytest.mark.ai_generated
+def test_a_split_output_refuses_a_key_with_no_shard(split_dataset):
+    with pytest.raises(ValueError, match="hexadecimal"):
+        split_dataset.write_split_output_lookup({"zz": 1}, "my_cache_messages.jsonl")
+
+
+@pytest.mark.ai_generated
+def test_every_shard_of_a_split_output_must_be_declared(dataset):
+    with pytest.raises(KeyError, match="not a declared output"):
+        dataset.write_split_output_lookup({"0a": 1}, "my_cache_messages.jsonl")
+
+
+@pytest.mark.ai_generated
+def test_a_split_update_migrates_the_single_file_and_removes_it(split_dataset):
+    single = split_dataset.derivatives_directory / "my_cache_messages.jsonl"
+    dandi_cache.write_lookup(single, {"0a": 1, "fb": 2})
+
+    records, result = dandi_cache.run_incremental_update(
+        split_dataset,
+        candidates=["0a", "fb", "c1"],
+        process=lambda item: 3,
+        output="my_cache_messages.jsonl",
+        split=True,
+    )
+
+    assert result.considered == 1
+    assert records == {"0a": 1, "fb": 2, "c1": 3}
+    assert not single.exists()
+    assert split_dataset.read_split_output_lookup("my_cache_messages.jsonl") == records
+
+
+@pytest.mark.ai_generated
+def test_a_split_rebuild_writes_each_record_to_its_shard(tmp_path):
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache", "outputs": [f"my_cache_{prefix}.jsonl" for prefix in "0123456789abcdef"]}},
+        directory=tmp_path,
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
+
+    dandi_cache.run_full_rebuild(dataset, build=lambda: [{"0a": 1}, {"f1": 2}, {"0b": 3}], split=True)
+
+    assert dandi_cache.read_records(dataset.output_file_path("my_cache_0.jsonl")) == [{"0a": 1}, {"0b": 3}]
+    assert dandi_cache.read_records(dataset.output_file_path("my_cache_f.jsonl")) == [{"f1": 2}]
+
+
+@pytest.mark.ai_generated
+@pytest.mark.parametrize(
+    ("format", "expected"),
+    [
+        ("lookup", {"0a": 1, "f1": 2}),
+        ("records", [{"0a": 1}, {"f1": 2}]),
+    ],
+)
+def test_a_split_upstream_is_read_as_one_input(tmp_path, format, expected):
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache"}, "inputs": [{"name": "up-stream", "format": format}]},
+        directory=tmp_path,
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
+    single = dataset.input_file_path()
+    single.parent.mkdir(parents=True)
+    for prefix in "0123456789abcdef":
+        dandi_cache.write_records(single.with_name(f"up_stream_{prefix}.jsonl"), [])
+    dandi_cache.write_records(single.with_name("up_stream_0.jsonl"), [{"0a": 1}])
+    dandi_cache.write_records(single.with_name("up_stream_f.jsonl"), [{"f1": 2}])
+
+    assert dataset.read_input() == expected

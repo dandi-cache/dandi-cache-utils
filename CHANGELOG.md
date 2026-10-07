@@ -12,6 +12,11 @@
 
 ### 🚀 Enhancement
 
+- A cache output can be split across sixteen files by the first digit of its keys, for one that would pass GitHub's 100 MiB limit on a plain-git branch. `run_incremental_update` and `run_full_rebuild` take `split=True`, and `CacheDataset` gains `split_output_names`, `read_split_output_lookup`, `write_split_output_lookup` and `write_split_output_records` for side outputs. Each `<stem>_<digit>.jsonl` is declared in `cache.toml` like any other output.
+  The first split run reads the single file the cache published before, and removes it, so the migration is one run.
+  `read_input` reads an upstream's sixteen files whenever its single file is absent, so a downstream cache needs no change when its input splits ([#24](https://github.com/dandi-cache/dandi-cache-utils/pull/24)).
+  `content-id-to-valid-nwb-file` had already stopped publishing, its messages file at 100.5 MiB, and `content-id-to-dandiset-paths` and `content-id-to-usage-dandiset-path` were within days of it.
+
 - The pipeline can leave publishing `dist` to a later step. With `PUBLISH_DIST=false` it stages the same files it would have pushed, the compressed declared outputs and `dataset_description.json`, and reports their directory as the `dist-directory` step output.
   That lets `dandi-cache-action` publish them with [`dist-bundle-action`](https://github.com/CodyCBakerPhD/dist-bundle-action) and its `files` format, which writes the same tree, so every consumer URL stays as it is.
   Without the variable the pipeline pushes `dist` itself, as before, so a cache on an older action is unaffected. ([#24](https://github.com/dandi-cache/dandi-cache-utils/pull/24))
