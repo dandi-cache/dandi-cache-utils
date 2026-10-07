@@ -24,7 +24,11 @@ def _call_in_child(function: typing.Callable, arguments: tuple, connection) -> N
         pickle.loads(pickle.dumps(outcome))
     except Exception:  # noqa: BLE001 -- whatever stops the round trip, the parent still needs an answer
         kind, value = outcome
-        text = f"{type(value).__name__}: {value}" if kind == "error" else f"unpicklable result of type {type(value).__name__}"
+        text = (
+            f"{type(value).__name__}: {value}"
+            if kind == "error"
+            else f"unpicklable result of type {type(value).__name__}"
+        )
         outcome = ("error", RuntimeError(text))
     try:
         connection.send(outcome)
