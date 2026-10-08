@@ -50,3 +50,21 @@ def test_an_exception_that_cannot_cross_back_still_says_what_it_was():
 def test_a_child_that_dies_without_answering_reports_its_exit_code():
     with pytest.raises(ChildProcessError, match="code 3"):
         dandi_cache.run_isolated(os._exit, arguments=(3,), timeout_seconds=30)
+
+
+def _pid_and_double(value):
+    return os.getpid(), value * 2
+
+
+@pytest.mark.ai_generated
+def test_a_spawned_child_runs_while_other_threads_run():
+    import concurrent.futures
+
+    def call(value):
+        return dandi_cache.run_isolated(_pid_and_double, arguments=(value,), timeout_seconds=60, start_method="spawn")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        results = list(executor.map(call, [1, 2, 3]))
+
+    assert [doubled for _pid, doubled in results] == [2, 4, 6]
+    assert os.getpid() not in {pid for pid, _doubled in results}
