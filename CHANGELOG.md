@@ -12,6 +12,10 @@
 
 ### 🚀 Enhancement
 
+- `run_incremental_update` takes `in_memory=False`, for a split output too large to load whole.
+  The recorded items are read one at a time, keeping only which are recorded and which `retry_when` selects again, and every checkpoint merges only the results added since the last one into only the files they belong to. The mapping returned holds only this batch's results.
+  The pieces are public: `dataset.iter_output()` and `dataset.iter_input()` yield `(key, value)` pairs one at a time, from a single file or its split files, and `dataset.merge_output_lookup(records)` rewrites only the split files `records` touch.
+  `valid-nwb-file-to-array-sizes` needs this: held in memory, its output at full coverage would take some 40 GB.
 - For an output far larger than the ones `split` was made for, `cache.toml` takes two more settings beside it ([#26](https://github.com/dandi-cache/dandi-cache-utils/pull/26)).
   `split_files = 256` keeps each split output as 256 files, by the first two digits of each key, rather than 16. `publish_split = true` publishes those files to `dist` one by one, compressed, rather than joined into one file, for an output too large for GitHub's limit even compressed.
   A split output is read from whichever layout it was last kept as, so changing either setting migrates on the next run.

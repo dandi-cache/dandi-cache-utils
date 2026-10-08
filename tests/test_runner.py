@@ -737,3 +737,98 @@ def test_items_processed_concurrently_are_recorded_like_serial_ones(tmp_path, da
     assert (result.considered, result.succeeded, result.failed) == (8, 7, 1)
     assert dataset.read_output_lookup() == records
     assert "boom" in (dataset.logs_directory / "unexpected_errors.txt").read_text()
+
+
+@pytest.mark.ai_generated
+def test_a_split_output_streams_one_item_at_a_time(split_dataset):
+    split_dataset.write_output_lookup({"0a": 1, "fb": 2}, "my_cache_messages.jsonl")
+
+    assert dict(split_dataset.iter_output("my_cache_messages.jsonl")) == {"0a": 1, "fb": 2}
+    assert list(split_dataset.iter_output("my_cache.jsonl")) == []
+
+
+@pytest.mark.ai_generated
+def test_a_split_upstream_streams_one_item_at_a_time(tmp_path):
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache"}, "inputs": [{"name": "up-stream", "format": "lookup"}]},
+        directory=tmp_path,
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
+    single = dataset.input_file_path()
+    single.parent.mkdir(parents=True)
+    with pytest.raises(FileNotFoundError):
+        list(dataset.iter_input())
+    for prefix in "0123456789abcdef":
+        dandi_cache.write_records(single.with_name(f"up_stream_{prefix}.jsonl"), [])
+    dandi_cache.write_records(single.with_name("up_stream_0.jsonl"), [{"0a": 1}])
+    dandi_cache.write_records(single.with_name("up_stream_f.jsonl"), [{"f1": 2}])
+
+    assert list(dataset.iter_input()) == [("0a", 1), ("f1", 2)]
+
+
+@pytest.mark.ai_generated
+def test_merging_into_a_split_output_rewrites_only_the_files_it_touches(split_dataset):
+    split_dataset.write_output_lookup({"0a": 1, "fb": 2}, "my_cache_messages.jsonl")
+    untouched = _shard(split_dataset, "f")
+    untouched.write_text(untouched.read_text() + "")  # Same content; its mtime is the witness.
+    before = untouched.stat().st_mtime_ns
+
+    split_dataset.merge_output_lookup({"0c": 3, "0a": 4}, "my_cache_messages.jsonl")
+
+    assert dandi_cache.read_lookup(_shard(split_dataset, "0")) == {"0a": 4, "0c": 3}
+    assert untouched.stat().st_mtime_ns == before
+    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == {"0a": 4, "0c": 3, "fb": 2}
+
+
+@pytest.mark.ai_generated
+def test_merging_into_an_output_not_yet_split_migrates_it(split_dataset):
+    single = split_dataset.derivatives_directory / "my_cache_messages.jsonl"
+    dandi_cache.write_lookup(single, {"0a": 1, "fb": 2})
+
+    split_dataset.merge_output_lookup({"c1": 3}, "my_cache_messages.jsonl")
+
+    assert not single.exists()
+    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == {"0a": 1, "fb": 2, "c1": 3}
+
+
+@pytest.mark.ai_generated
+def test_only_a_split_output_can_be_merged_into(split_dataset):
+    with pytest.raises(ValueError, match="cache.split"):
+        split_dataset.merge_output_lookup({"0a": 1}, "my_cache.jsonl")
+
+
+@pytest.mark.ai_generated
+def test_an_update_out_of_memory_returns_only_its_batch_and_keeps_the_rest(split_dataset):
+    split_dataset.write_output_lookup({"0a": 1, "fb": "retry"}, "my_cache_messages.jsonl")
+
+    records, result = dandi_cache.run_incremental_update(
+        split_dataset,
+        candidates=["0a", "fb", "c1", "c2", "d3"],
+        process=lambda item: f"done {item}",
+        output="my_cache_messages.jsonl",
+        on_failure=dandi_cache.RETRY,
+        retry_when=lambda value: value == "retry",
+        checkpoint_every=2,
+        in_memory=False,
+    )
+
+    assert records == {"fb": "done fb", "c1": "done c1", "c2": "done c2", "d3": "done d3"}
+    assert result.succeeded == 4
+    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == {"0a": 1, **records}
+
+
+@pytest.mark.ai_generated
+def test_an_update_out_of_memory_needs_a_split_output_and_no_preloaded_records(split_dataset):
+    with pytest.raises(ValueError, match="cache.split"):
+        dandi_cache.run_incremental_update(
+            split_dataset, candidates=["0a"], process=lambda item: 1, output="my_cache.jsonl", in_memory=False
+        )
+    with pytest.raises(ValueError, match="in_memory"):
+        dandi_cache.run_incremental_update(
+            split_dataset,
+            candidates=["0a"],
+            process=lambda item: 1,
+            output="my_cache_messages.jsonl",
+            recorded={},
+            in_memory=False,
+        )
