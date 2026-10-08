@@ -53,13 +53,22 @@ def dandi_cache_cli() -> None:
     default=pathlib.Path.cwd,
     help="The directory holding `derivatives/` (the dataset clone, in the pipeline).",
 )
-def compress_command(base_directory: pathlib.Path) -> None:
+@rich_click.option(
+    "--config",
+    "config_file",
+    type=rich_click.Path(exists=True, dir_okay=False, path_type=pathlib.Path),
+    default=None,
+    help="The cache's `cache.toml`, whose `publish_split` outputs are compressed file by file rather than joined.",
+)
+def compress_command(base_directory: pathlib.Path, config_file: pathlib.Path | None) -> None:
     """Gzip `derivatives/*.jsonl` for publication to the `dist` branch.
 
     The archives are written reproducibly, so a cache that has not changed republishes
     byte-identical files rather than a new artifact on every run.
     """
-    compressed = _jsonl.compress_derivatives(base_directory)
+    config = _config.read_config(config_file) if config_file is not None else None
+    separate = config.split if config is not None and config.publish_split else ()
+    compressed = _jsonl.compress_derivatives(base_directory, separate=separate)
     for file_path in compressed:
         rich_click.echo(file_path)
     if not compressed:

@@ -26,6 +26,7 @@ Three failure policies are supported explicitly, because choosing the wrong one 
   publish a permanent failure beside a transient one.
 """
 
+import concurrent.futures
 import dataclasses
 import inspect
 import itertools
@@ -124,6 +125,7 @@ def run_incremental_update(
     stages: typing.Mapping[str, str] | None = None,
     checkpoint_every: int | None = None,
     write: bool = True,
+    workers: int = 1,
 ) -> tuple[dict, BatchResult]:
     """Process a batch of items and write the updated cache.
 
@@ -145,8 +147,16 @@ def run_incremental_update(
     why an item failed, and `on_write()` after each write of the cache itself, for caches that keep
     those side outputs in files of their own and need all of them to land together.
 
+    `workers` processes that many items at once, in threads, for an operation that spends its time
+    waiting on the network or on a child process, such as one run through `run_isolated`. Only
+    `process` runs in those threads, so it must be safe to call concurrently; recording each result,
+    logging it, `on_error`, `on_write` and checkpoints all happen on the calling thread, in the order
+    items finish.
+
     Returns the full `{item: value}` mapping and a `BatchResult` describing the batch.
     """
+    if workers < 1:
+        raise ValueError(f"workers must be at least 1, got {workers}.")
     if on_failure not in (SKIP, RECORD, RETRY):
         raise ValueError(f"on_failure must be {SKIP!r}, {RECORD!r} or {RETRY!r}, got {on_failure!r}.")
     if (on_failure == RETRY) != (retry_when is not None):
@@ -168,47 +178,62 @@ def run_incremental_update(
     logger.info("Processing %d items (%d already recorded).", len(batch), len(records))
     batch_start_time = time.monotonic()
 
-    for index, item in enumerate(batch, start=1):
-        progress = f"[{index}/{len(batch)}] {item}"
+    def attempt(item: typing.Any) -> tuple[typing.Any, typing.Any, typing.Any, float]:
         item_start_time = time.monotonic()
-
+        value = None
         with staged_errors.item(str(item)) as scope:
             value = process(item, scope) if takes_scope else process(item)
+        return item, scope, value, time.monotonic() - item_start_time
 
-        if scope.failed:
-            result.failed += 1
-            # Caches with side outputs -- a `checked_at` stamp, the messages explaining a rejection
-            # -- need to record something about a failure too, not only the failure value itself.
-            if on_error is not None:
-                on_error(item, scope)
-            if on_failure in (RECORD, RETRY):
-                records[item] = failure_value(item, scope) if callable(failure_value) else failure_value
-                result.processed += 1
-                if on_failure == RETRY:
-                    retried = "; a later run retries it" if retry_when(records[item]) else ", not to be retried"
-                    logger.warning("%s: recorded the failure%s.", progress, retried)
+    if workers == 1:
+        outcomes: typing.Iterable = map(attempt, batch)
+        executor = None
+    else:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+        futures = [executor.submit(attempt, item) for item in batch]
+        outcomes = (future.result() for future in concurrent.futures.as_completed(futures))
+
+    try:
+        for index, (item, scope, value, item_seconds) in enumerate(outcomes, start=1):
+            progress = f"[{index}/{len(batch)}] {item}"
+
+            if scope.failed:
+                result.failed += 1
+                # Caches with side outputs -- a `checked_at` stamp, the messages explaining a rejection
+                # -- need to record something about a failure too, not only the failure value itself.
+                if on_error is not None:
+                    on_error(item, scope)
+                if on_failure in (RECORD, RETRY):
+                    records[item] = failure_value(item, scope) if callable(failure_value) else failure_value
+                    result.processed += 1
+                    if on_failure == RETRY:
+                        retried = "; a later run retries it" if retry_when(records[item]) else ", not to be retried"
+                        logger.warning("%s: recorded the failure%s.", progress, retried)
+                else:
+                    logger.warning("%s: leaving unrecorded for a later run to retry.", progress)
+            elif value is NOTHING:
+                logger.info("%s: nothing to record.", progress)
             else:
-                logger.warning("%s: leaving unrecorded for a later run to retry.", progress)
-        elif value is NOTHING:
-            logger.info("%s: nothing to record.", progress)
-        else:
-            records[item] = value
-            result.processed += 1
-            result.succeeded += 1
-            detail = f"{describe(value)}; " if describe is not None else ""
-            logger.info(
-                "%s: %s%.1f s; peak memory %.0f MiB.",
-                progress,
-                detail,
-                time.monotonic() - item_start_time,
-                peak_memory_mib(),
-            )
+                records[item] = value
+                result.processed += 1
+                result.succeeded += 1
+                detail = f"{describe(value)}; " if describe is not None else ""
+                logger.info(
+                    "%s: %s%.1f s; peak memory %.0f MiB.",
+                    progress,
+                    detail,
+                    item_seconds,
+                    peak_memory_mib(),
+                )
 
-        if write and checkpoint_every and index % checkpoint_every == 0:
-            dataset.write_output_lookup(records, output)
-            if on_write is not None:
-                on_write()
-            logger.info("%s: checkpointed %d records.", progress, len(records))
+            if write and checkpoint_every and index % checkpoint_every == 0:
+                dataset.write_output_lookup(records, output)
+                if on_write is not None:
+                    on_write()
+                logger.info("%s: checkpointed %d records.", progress, len(records))
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
 
     result.elapsed_seconds = time.monotonic() - batch_start_time
 

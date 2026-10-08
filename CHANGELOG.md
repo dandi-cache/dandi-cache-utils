@@ -12,6 +12,12 @@
 
 ### 🚀 Enhancement
 
+- For an output far larger than the ones `split` was made for, `cache.toml` takes two more settings beside it ([#26](https://github.com/dandi-cache/dandi-cache-utils/pull/26)).
+  `split_files = 256` keeps each split output as 256 files, by the first two digits of each key, rather than 16. `publish_split = true` publishes those files to `dist` one by one, compressed, rather than joined into one file, for an output too large for GitHub's limit even compressed.
+  A split output is read from whichever layout it was last kept as, so changing either setting migrates on the next run.
+  `read_input` reads an upstream kept as 256 files the same way it reads one kept as 16.
+- `run_incremental_update` takes `workers`, to process that many items at once, in threads, for an operation that waits on the network or on a child process.
+  Only `process` runs in the threads; recording results, logging, `on_error`, `on_write` and checkpoints stay on the calling thread. `ErrorLog` appends are now locked, so concurrent failures cannot interleave in one log. ([#26](https://github.com/dandi-cache/dandi-cache-utils/pull/26))
 - A run recorded on `derivatives` can be re-executed from a clone of `derivatives` alone ([dandi-cache/cache-template#31](https://github.com/dandi-cache/cache-template/issues/31)).
   The cache's own code is recorded there as the `workspace` subdataset, at the commit the run executes, and the run mounts it from there rather than from the runner's `$WORKSPACE` checkout, which `datalad rerun` could never reach.
   Its `url` is `.`, which git resolves to the same repository; `datalad-url` names it in full, since DataLad cannot install from `.` ([datalad/datalad#7889](https://github.com/datalad/datalad/issues/7889)).

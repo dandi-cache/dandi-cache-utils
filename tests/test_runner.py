@@ -615,3 +615,125 @@ def test_a_split_upstream_is_read_as_one_input(tmp_path, format, expected):
     dandi_cache.write_records(single.with_name("up_stream_f.jsonl"), [{"f1": 2}])
 
     assert dataset.read_input() == expected
+
+
+@pytest.mark.ai_generated
+def test_an_output_split_into_256_files_goes_by_the_first_two_digits(tmp_path):
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": 256}},
+        directory=tmp_path,
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
+    records = {"0a1": 1, "0b2": 2, "FF3": 3}
+
+    dataset.write_output_lookup(records, "my_cache.jsonl")
+
+    derivatives = tmp_path / "derivatives"
+    assert len(list(derivatives.glob("my_cache_??.jsonl"))) == 256
+    assert dandi_cache.read_lookup(derivatives / "my_cache_0a.jsonl") == {"0a1": 1}
+    assert dandi_cache.read_lookup(derivatives / "my_cache_ff.jsonl") == {"FF3": 3}
+    assert dataset.read_output_lookup("my_cache.jsonl") == records
+    with pytest.raises(ValueError, match="2 hexadecimal"):
+        dataset.write_output_lookup({"0z": 1}, "my_cache.jsonl")
+
+
+@pytest.mark.ai_generated
+def test_widening_a_split_migrates_the_sixteen_files_and_removes_them(tmp_path):
+    def open_with(files: int) -> CacheDataset:
+        config = dandi_cache.parse_config(
+            {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": files}}, directory=tmp_path
+        )
+        return CacheDataset(config=config, base_directory=tmp_path)
+
+    open_with(16).write_output_lookup({"0a": 1, "f1": 2}, "my_cache.jsonl")
+    wider = open_with(256)
+
+    assert wider.read_output_lookup("my_cache.jsonl") == {"0a": 1, "f1": 2}
+    wider.write_output_lookup({"0a": 1, "f1": 2}, "my_cache.jsonl")
+
+    derivatives = tmp_path / "derivatives"
+    assert not list(derivatives.glob("my_cache_?.jsonl"))
+    assert dandi_cache.read_lookup(derivatives / "my_cache_f1.jsonl") == {"f1": 2}
+
+
+@pytest.mark.ai_generated
+def test_an_upstream_split_into_256_files_is_read_as_one_input(tmp_path):
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache"}, "inputs": [{"name": "up-stream"}]}, directory=tmp_path
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
+    single = dataset.input_file_path()
+    single.parent.mkdir(parents=True)
+    dandi_cache.write_lookup(single.with_name("up_stream_0a.jsonl"), {"0a1": 1})
+    dandi_cache.write_lookup(single.with_name("up_stream_ff.jsonl"), {"ff2": 2})
+
+    assert dataset.read_input() == {"0a1": 1, "ff2": 2}
+
+
+@pytest.mark.ai_generated
+def test_split_settings_need_a_split_to_describe(tmp_path):
+    with pytest.raises(ValueError, match="describe `cache.split`"):
+        dandi_cache.parse_config({"cache": {"name": "my-cache", "publish_split": True}}, directory=tmp_path)
+    with pytest.raises(ValueError, match="16 or 256"):
+        dandi_cache.parse_config(
+            {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": 64}}, directory=tmp_path
+        )
+
+
+@pytest.mark.ai_generated
+def test_a_published_split_lists_each_file_for_dist(tmp_path):
+    config = dandi_cache.parse_config(
+        {
+            "cache": {
+                "name": "my-cache",
+                "outputs": ["my_cache.jsonl", "other.jsonl"],
+                "split": ["my_cache.jsonl"],
+                "split_files": 256,
+                "publish_split": True,
+            }
+        },
+        directory=tmp_path,
+    )
+
+    assert config.dist_files[0] == "my_cache_00.jsonl"
+    assert config.dist_files[-1] == "other.jsonl"
+    assert len(config.dist_files) == 257
+    assert "CACHE_DIST_FILES=(my_cache_00.jsonl" in dandi_cache.as_shell(config)
+
+
+@pytest.mark.ai_generated
+def test_items_processed_concurrently_are_recorded_like_serial_ones(tmp_path, dataset):
+    import threading
+
+    running, peak, lock = [0], [0], threading.Lock()
+
+    def process(item):
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        try:
+            import time
+
+            time.sleep(0.05)
+            if item == "c":
+                raise RuntimeError("boom")
+            return item.upper()
+        finally:
+            with lock:
+                running[0] -= 1
+
+    records, result = dandi_cache.run_incremental_update(
+        dataset,
+        candidates=list("abcdefgh"),
+        process=process,
+        on_failure=dandi_cache.RECORD,
+        failure_value="failed",
+        workers=4,
+        checkpoint_every=3,
+    )
+
+    assert peak[0] > 1
+    assert records == {**{item: item.upper() for item in "abdefgh"}, "c": "failed"}
+    assert (result.considered, result.succeeded, result.failed) == (8, 7, 1)
+    assert dataset.read_output_lookup() == records
+    assert "boom" in (dataset.logs_directory / "unexpected_errors.txt").read_text()

@@ -14,11 +14,19 @@ import dataclasses
 import pathlib
 
 from . import _jsonl
-from ._config import DEFAULT_OPERATION, CacheConfig, InputCache, load_config
+from ._config import (
+    DEFAULT_OPERATION,
+    SPLIT_FILE_COUNTS,
+    CacheConfig,
+    InputCache,
+    load_config,
+    split_names,
+    split_prefixes,
+)
 from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
-#: The files an output declared in `cache.split` is kept as, one per leading hexadecimal digit of its
-#: keys. A content ID is a UUID, so its first digit spreads a cache's entries evenly over all sixteen.
+#: The files an output declared in `cache.split` is kept as by default, one per leading hexadecimal
+#: digit of its keys. A content ID is a UUID, so its first digit spreads a cache's entries evenly.
 SPLIT_PREFIXES = "0123456789abcdef"
 
 TESTING_FILE_PREFIX = "testing_"
@@ -102,11 +110,13 @@ class CacheDataset:
         """
         input_cache: InputCache = self.config.only_input if name is None else self.config.input(name)
         file_path = self.input_file_path(name)
-        # An upstream that outgrew one file keeps it split across sixteen. Reading those whenever
+        # An upstream that outgrew one file keeps it split across 16 or 256. Reading those whenever
         # the single file is absent means a downstream cache needs no change, before or after.
-        shard_paths = self._shard_paths(file_path)
-        if not file_path.exists() and any(shard_path.exists() for shard_path in shard_paths):
-            return _jsonl.read_split_input(shard_paths, format=input_cache.format)
+        if not file_path.exists():
+            for files in SPLIT_FILE_COUNTS:
+                shard_paths = [file_path.with_name(shard) for shard in split_names(file_path.name, files)]
+                if any(shard_path.exists() for shard_path in shard_paths):
+                    return _jsonl.read_split_input(shard_paths, format=input_cache.format)
         return _jsonl.read_input(file_path, format=input_cache.format, required=required)
 
     def output_file_path(self, name: str | None = None, /) -> pathlib.Path:
@@ -125,12 +135,13 @@ class CacheDataset:
         single file when there are none yet, which is the whole of its first run's migration.
         """
         file_path = self.output_file_path(name)
-        shard_paths = self._shard_paths(file_path)
-        if any(shard_path.exists() for shard_path in shard_paths) and (
-            file_path.name.removeprefix(self.log_prefix) in self.config.split or not file_path.exists()
-        ):
-            return _jsonl.read_split_input(shard_paths, format="lookup")
-        return _jsonl.read_lookup(file_path)
+        layouts = self._layouts(file_path)
+        # The declared layout first; then any other the output was kept as before, so changing
+        # `split` or `split_files` migrates on the next run rather than losing what was recorded.
+        for paths in layouts:
+            if any(path.exists() for path in paths):
+                return _jsonl.read_split_input(paths, format="lookup")
+        return {}
 
     def write_output_lookup(self, records: dict, name: str | None = None, /) -> pathlib.Path:
         """Write a `{key: value}` mapping to one of this cache's declared outputs.
@@ -140,10 +151,11 @@ class CacheDataset:
         """
         file_path = self.output_file_path(name)
         if self._is_split(file_path):
-            shards: dict[str, dict] = {prefix: {} for prefix in SPLIT_PREFIXES}
+            prefixes = split_prefixes(self.config.split_files)
+            shards: dict[str, dict] = {prefix: {} for prefix in prefixes}
             for key in records:
                 shards[self._shard_of(key, file_path)][key] = records[key]
-            for prefix, shard_path in zip(SPLIT_PREFIXES, self._shard_paths(file_path), strict=True):
+            for prefix, shard_path in zip(prefixes, self._shard_paths(file_path), strict=True):
                 _jsonl.write_lookup(shard_path, shards[prefix])
         else:
             _jsonl.write_lookup(file_path, records)
@@ -158,23 +170,22 @@ class CacheDataset:
         """
         file_path = self.output_file_path(name)
         if self._is_split(file_path):
-            shards: dict[str, list] = {prefix: [] for prefix in SPLIT_PREFIXES}
+            prefixes = split_prefixes(self.config.split_files)
+            shards: dict[str, list] = {prefix: [] for prefix in prefixes}
             for record in records:
                 if not isinstance(record, dict) or len(record) != 1:
                     raise ValueError(f"A split output holds single-key records; {file_path.name} was given {record!r}.")
                 shards[self._shard_of(next(iter(record)), file_path)].append(record)
-            for prefix, shard_path in zip(SPLIT_PREFIXES, self._shard_paths(file_path), strict=True):
+            for prefix, shard_path in zip(prefixes, self._shard_paths(file_path), strict=True):
                 _jsonl.write_records(shard_path, shards[prefix])
         else:
             _jsonl.write_records(file_path, records)
         self._remove_other_layout(file_path)
         return file_path
 
-    @staticmethod
-    def split_output_names(name: str, /) -> list[str]:
-        """The sixteen files a split output is kept as: `<stem>_0.jsonl` to `<stem>_f.jsonl`."""
-        path = pathlib.PurePosixPath(name)
-        return [f"{path.stem}_{prefix}{path.suffix}" for prefix in SPLIT_PREFIXES]
+    def split_output_names(self, name: str, /) -> list[str]:
+        """The files a split output is kept as: `<stem>_0.jsonl` to `<stem>_f.jsonl`, or `_00` to `_ff`."""
+        return split_names(name, self.config.split_files)
 
     def _is_split(self, file_path: pathlib.Path, /) -> bool:
         return file_path.name.removeprefix(self.log_prefix) in self.config.split
@@ -182,20 +193,26 @@ class CacheDataset:
     def _shard_paths(self, file_path: pathlib.Path, /) -> list[pathlib.Path]:
         return [file_path.with_name(shard) for shard in self.split_output_names(file_path.name)]
 
-    @staticmethod
-    def _shard_of(key, file_path: pathlib.Path, /) -> str:
-        prefix = str(key)[:1].lower()
-        if prefix not in SPLIT_PREFIXES or not prefix:
+    def _shard_of(self, key, file_path: pathlib.Path, /) -> str:
+        width = 1 if self.config.split_files == 16 else 2
+        prefix = str(key)[:width].lower()
+        if len(prefix) != width or any(character not in SPLIT_PREFIXES for character in prefix):
             raise ValueError(
-                f"{key!r} does not start with a hexadecimal digit, so it belongs to none of the files "
+                f"{key!r} does not start with {width} hexadecimal digit(s), so it belongs to none of the files "
                 f"{file_path.name} is split across. Only a cache keyed by content ID can be split."
             )
         return prefix
 
+    def _layouts(self, file_path: pathlib.Path, /) -> list[list[pathlib.Path]]:
+        """Every way the output can be kept on disk, the declared one first."""
+        layouts = [[file_path]] + [
+            [file_path.with_name(shard) for shard in split_names(file_path.name, files)] for files in SPLIT_FILE_COUNTS
+        ]
+        declared = self._shard_paths(file_path) if self._is_split(file_path) else [file_path]
+        return [declared] + [layout for layout in layouts if layout != declared]
+
     def _remove_other_layout(self, file_path: pathlib.Path, /) -> None:
-        """Remove what the output was kept as before, so a split, or its undoing, leaves one copy."""
-        if self._is_split(file_path):
-            file_path.unlink(missing_ok=True)
-        else:
-            for shard_path in self._shard_paths(file_path):
-                shard_path.unlink(missing_ok=True)
+        """Remove what the output was kept as before, so a change of layout leaves one copy."""
+        for layout in self._layouts(file_path)[1:]:
+            for path in layout:
+                path.unlink(missing_ok=True)

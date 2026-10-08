@@ -14,6 +14,7 @@ import logging
 import pathlib
 import resource
 import sys
+import threading
 import time
 import traceback
 import types
@@ -83,9 +84,16 @@ class ErrorLog:
     def __init__(self, file_path: pathlib.Path, /, *, max_size_bytes: int = MAX_LOG_FILE_SIZE_BYTES) -> None:
         self.file_path = file_path
         self.max_size_bytes = max_size_bytes
+        # Items processed concurrently report to the same log, and an append and its truncation
+        # must not interleave with another's.
+        self._lock = threading.Lock()
 
     def append(self, message: str, /) -> None:
         """Append one error report, truncating the oldest entries if the file has grown too large."""
+        with self._lock:
+            self._append(message)
+
+    def _append(self, message: str, /) -> None:
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         with self.file_path.open(mode="a") as file_stream:
             file_stream.write(f"{message}\n\n")
