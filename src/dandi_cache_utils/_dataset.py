@@ -12,6 +12,7 @@ published, a testing artifact can never reach the `dist` branch even if one is l
 
 import dataclasses
 import pathlib
+import typing
 
 from . import _jsonl
 from ._config import (
@@ -109,15 +110,40 @@ class CacheDataset:
         otherwise be read as empty, and the run would happily publish an empty cache over a good one.
         """
         input_cache: InputCache = self.config.only_input if name is None else self.config.input(name)
+        paths = self._input_paths(name)
+        if paths is not None:
+            return _jsonl.read_split_input(paths, format=input_cache.format)
+        return _jsonl.read_input(self.input_file_path(name), format=input_cache.format, required=required)
+
+    def iter_input(self, name: str | None = None, /) -> typing.Iterator[tuple[typing.Any, typing.Any]]:
+        """Yield an upstream lookup cache's `(key, value)` entries one at a time, in key order.
+
+        For an input too large to hold in memory whole: only one entry is parsed at a time, and an
+        upstream kept as split files is read one file after another. Requires the input to exist.
+        """
+        paths = self._input_paths(name)
+        if paths is None:
+            file_path = self.input_file_path(name)
+            if not file_path.exists():
+                raise FileNotFoundError(f"Expected input file {file_path} does not exist.")
+            paths = [file_path]
+        for path in paths:
+            if path.exists():
+                for record in _jsonl.iter_json_lines(path):
+                    yield from record.items()
+
+    def _input_paths(self, name: str | None, /) -> list[pathlib.Path] | None:
+        """The split files an upstream keeps its cache as, or `None` when it keeps the single file."""
         file_path = self.input_file_path(name)
         # An upstream that outgrew one file keeps it split across 16 or 256. Reading those whenever
         # the single file is absent means a downstream cache needs no change, before or after.
-        if not file_path.exists():
-            for files in SPLIT_FILE_COUNTS:
-                shard_paths = [file_path.with_name(shard) for shard in split_names(file_path.name, files)]
-                if any(shard_path.exists() for shard_path in shard_paths):
-                    return _jsonl.read_split_input(shard_paths, format=input_cache.format)
-        return _jsonl.read_input(file_path, format=input_cache.format, required=required)
+        if file_path.exists():
+            return None
+        for files in SPLIT_FILE_COUNTS:
+            shard_paths = [file_path.with_name(shard) for shard in split_names(file_path.name, files)]
+            if any(shard_path.exists() for shard_path in shard_paths):
+                return shard_paths
+        return None
 
     def output_file_path(self, name: str | None = None, /) -> pathlib.Path:
         """The path of one of this cache's declared output files, redirected in testing mode."""
@@ -134,14 +160,44 @@ class CacheDataset:
         run does not need to do again. A split output is read from its sixteen files, or from the
         single file when there are none yet, which is the whole of its first run's migration.
         """
+        paths = self._existing_layout(self.output_file_path(name))
+        return _jsonl.read_split_input(paths, format="lookup") if paths is not None else {}
+
+    def iter_output(self, name: str | None = None, /) -> typing.Iterator[tuple[typing.Any, typing.Any]]:
+        """Yield this cache's own recorded `(key, value)` entries one at a time, never all at once."""
+        for path in self._existing_layout(self.output_file_path(name)) or []:
+            if path.exists():
+                for record in _jsonl.iter_json_lines(path):
+                    yield from record.items()
+
+    def merge_output_lookup(self, records: dict, name: str | None = None, /) -> pathlib.Path:
+        """Add `records` to a split output, rewriting only the files they belong to.
+
+        The rest of the output is never read, so a run holds only what it adds: that is what lets a
+        cache too large for memory still be updated. An output not yet kept in its declared layout
+        is read whole once and rewritten in it, which is its migration.
+        """
         file_path = self.output_file_path(name)
-        layouts = self._layouts(file_path)
-        # The declared layout first; then any other the output was kept as before, so changing
-        # `split` or `split_files` migrates on the next run rather than losing what was recorded.
-        for paths in layouts:
-            if any(path.exists() for path in paths):
-                return _jsonl.read_split_input(paths, format="lookup")
-        return {}
+        if not self._is_split(file_path):
+            raise ValueError(
+                f"{file_path.name} is not declared in `cache.split`; only a split output can be merged into."
+            )
+        shard_paths = self._shard_paths(file_path)
+        if not all(shard_path.exists() for shard_path in shard_paths):
+            combined = self.read_output_lookup(name)
+            combined.update(records)
+            return self.write_output_lookup(combined, name)
+
+        prefixes = split_prefixes(self.config.split_files)
+        touched: dict[str, dict] = {}
+        for key, value in records.items():
+            touched.setdefault(self._shard_of(key, file_path), {})[key] = value
+        for prefix, shard_path in zip(prefixes, shard_paths, strict=True):
+            if prefix in touched:
+                shard = _jsonl.read_lookup(shard_path)
+                shard.update(touched[prefix])
+                _jsonl.write_lookup(shard_path, shard)
+        return file_path
 
     def write_output_lookup(self, records: dict, name: str | None = None, /) -> pathlib.Path:
         """Write a `{key: value}` mapping to one of this cache's declared outputs.
@@ -202,6 +258,17 @@ class CacheDataset:
                 f"{file_path.name} is split across. Only a cache keyed by content ID can be split."
             )
         return prefix
+
+    def _existing_layout(self, file_path: pathlib.Path, /) -> list[pathlib.Path] | None:
+        """The files the output is kept as now: the declared layout first, then any it was kept as before.
+
+        Reading whichever exists is what lets changing `split` or `split_files` migrate on the next
+        run rather than lose what was recorded.
+        """
+        for paths in self._layouts(file_path):
+            if any(path.exists() for path in paths):
+                return paths
+        return None
 
     def _layouts(self, file_path: pathlib.Path, /) -> list[list[pathlib.Path]]:
         """Every way the output can be kept on disk, the declared one first."""

@@ -31,6 +31,7 @@ import dataclasses
 import inspect
 import itertools
 import math
+import pathlib
 import time
 import typing
 
@@ -126,6 +127,7 @@ def run_incremental_update(
     checkpoint_every: int | None = None,
     write: bool = True,
     workers: int = 1,
+    in_memory: bool = True,
 ) -> tuple[dict, BatchResult]:
     """Process a batch of items and write the updated cache.
 
@@ -153,6 +155,11 @@ def run_incremental_update(
     logging it, `on_error`, `on_write` and checkpoints all happen on the calling thread, in the order
     items finish.
 
+    `in_memory=False` is for a split output too large to hold in memory. The recorded items are
+    read one at a time, keeping only which are recorded and which `retry_when` selects again, and
+    each write merges this batch's results into only the files they belong to. The cache is then
+    never loaded whole, and the mapping returned holds only this batch's results.
+
     Returns the full `{item: value}` mapping and a `BatchResult` describing the batch.
     """
     if workers < 1:
@@ -164,8 +171,36 @@ def run_incremental_update(
     if (candidates is None) == (batch is None):
         raise ValueError("Pass either `candidates`, to select the unrecorded ones, or `batch`, already selected.")
 
-    records = dataset.read_output_lookup(output) if recorded is None else recorded
-    batch = list(batch) if candidates is None else select_new(candidates, records, limit=limit, retry_when=retry_when)
+    if in_memory:
+        records = dataset.read_output_lookup(output) if recorded is None else recorded
+        selection_basis, selection_retry = records, retry_when
+    else:
+        if not dataset._is_split(dataset.output_file_path(output)):
+            raise ValueError("`in_memory=False` merges into a split output; declare it in `cache.split`.")
+        if recorded is not None:
+            raise ValueError("`recorded` holds the whole cache in memory, which `in_memory=False` is there to avoid.")
+        records = {}
+        # One flag per recorded item, rather than its value: whether `retry_when` selects it again.
+        selection_basis = {
+            key: retry_when is not None and retry_when(value) for key, value in dataset.iter_output(output)
+        }
+        selection_retry = None if retry_when is None else bool
+
+    unwritten: list = []
+
+    def write_records() -> pathlib.Path:
+        if in_memory:
+            return dataset.write_output_lookup(records, output)
+        # Only what this batch added since the last write, so each file is rewritten once per result.
+        file_path = dataset.merge_output_lookup({key: records[key] for key in unwritten}, output)
+        unwritten.clear()
+        return file_path
+
+    batch = (
+        list(batch)
+        if candidates is None
+        else select_new(candidates, selection_basis, limit=limit, retry_when=selection_retry)
+    )
 
     result = BatchResult(considered=len(batch))
     staged_errors = StagedErrorLog(
@@ -175,7 +210,7 @@ def run_incremental_update(
     )
     takes_scope = _accepts_second_argument(process)
 
-    logger.info("Processing %d items (%d already recorded).", len(batch), len(records))
+    logger.info("Processing %d items (%d already recorded).", len(batch), len(selection_basis))
     batch_start_time = time.monotonic()
 
     def attempt(item: typing.Any) -> tuple[typing.Any, typing.Any, typing.Any, float]:
@@ -205,6 +240,7 @@ def run_incremental_update(
                     on_error(item, scope)
                 if on_failure in (RECORD, RETRY):
                     records[item] = failure_value(item, scope) if callable(failure_value) else failure_value
+                    unwritten.append(item)
                     result.processed += 1
                     if on_failure == RETRY:
                         retried = "; a later run retries it" if retry_when(records[item]) else ", not to be retried"
@@ -215,6 +251,7 @@ def run_incremental_update(
                 logger.info("%s: nothing to record.", progress)
             else:
                 records[item] = value
+                unwritten.append(item)
                 result.processed += 1
                 result.succeeded += 1
                 detail = f"{describe(value)}; " if describe is not None else ""
@@ -227,10 +264,10 @@ def run_incremental_update(
                 )
 
             if write and checkpoint_every and index % checkpoint_every == 0:
-                dataset.write_output_lookup(records, output)
+                write_records()
                 if on_write is not None:
                     on_write()
-                logger.info("%s: checkpointed %d records.", progress, len(records))
+                logger.info("%s: checkpointed %d new records.", progress, len(records))
     finally:
         if executor is not None:
             executor.shutdown(wait=True, cancel_futures=True)
@@ -238,12 +275,12 @@ def run_incremental_update(
     result.elapsed_seconds = time.monotonic() - batch_start_time
 
     if write:
-        file_path = dataset.write_output_lookup(records, output)
+        file_path = write_records()
         if on_write is not None:
             on_write()
         logger.info(
             "Wrote %d records to %s (%d new, %d failed) in %.1f min (peak memory %.0f MiB).",
-            len(records),
+            len(records) if in_memory else len(selection_basis) + len(set(records) - set(selection_basis)),
             file_path,
             result.succeeded,
             result.failed,
