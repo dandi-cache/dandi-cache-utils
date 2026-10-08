@@ -33,6 +33,28 @@ IMAGE_TEMPLATE = "ghcr.io/{organization}/{name}"
 #: `dist` still publishes it as one compressed file, which is far smaller.
 GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024
 
+_HEX_DIGITS = "0123456789abcdef"
+
+#: How many files a split output can be kept as: one per leading hexadecimal digit of its keys, or
+#: one per leading pair of them.
+SPLIT_FILE_COUNTS = (16, 256)
+
+
+def split_prefixes(files: int = 16, /) -> list[str]:
+    """The key prefixes of a split output's files, in order: `0`-`f` for 16, `00`-`ff` for 256."""
+    if files == 16:
+        return list(_HEX_DIGITS)
+    if files == 256:
+        return [first + second for first in _HEX_DIGITS for second in _HEX_DIGITS]
+    raise ValueError(f"A split output is kept as 16 or 256 files, not {files}.")
+
+
+def split_names(name: str, /, files: int = 16) -> list[str]:
+    """The files one split output is kept as, e.g. `<stem>_0.jsonl` to `<stem>_f.jsonl`."""
+    path = pathlib.PurePosixPath(name)
+    return [f"{path.stem}_{prefix}{path.suffix}" for prefix in split_prefixes(files)]
+
+
 # Caches publish their data on a dedicated branch; their default branch holds only code.
 DEFAULT_INPUT_BRANCH = "derivatives"
 
@@ -94,6 +116,24 @@ class CacheConfig:
     #: The outputs kept on `derivatives` as sixteen files rather than one, each still published to
     #: `dist` as one file. See `GITHUB_FILE_LIMIT_BYTES` for why.
     split: tuple[str, ...] = ()
+    #: How many files each split output is kept as: 16, by the first digit of each key, or 256, by
+    #: the first two, for an output too large for sixteen files of under 100 MiB.
+    split_files: int = 16
+    #: Whether `dist` publishes the split outputs as their separate compressed files rather than
+    #: joined into one, for an output too large to publish as one file even compressed.
+    publish_split: bool = False
+
+    @property
+    def dist_files(self) -> tuple[str, ...]:
+        """The `.jsonl` names published to `dist`, each compressed: the outputs, or their split files."""
+        names: list[str] = []
+        for output in self.outputs:
+            if output in self.split and self.publish_split:
+                names += split_names(output, self.split_files)
+            else:
+                names.append(output)
+        return tuple(names)
+
     #: The repository root, when the config was read from a file; used as the default base directory.
     directory: pathlib.Path | None = None
 
@@ -274,6 +314,14 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
         if not output.endswith(".jsonl"):
             raise ValueError(f"`cache.outputs` entry {output!r} must be a `.jsonl` file name.")
     split = tuple(cache.get("split", []))
+    split_files = cache.get("split_files", 16)
+    if split_files not in (16, 256):
+        raise ValueError(f"`cache.split_files` must be 16 or 256, got {split_files!r}.")
+    publish_split = bool(cache.get("publish_split", False))
+    if (split_files != 16 or publish_split) and not split:
+        raise ValueError(
+            "`cache.split_files` and `cache.publish_split` describe `cache.split`, which declares nothing."
+        )
     for output in split:
         if output not in outputs:
             raise ValueError(
@@ -291,6 +339,8 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
         image=cache.get("image", IMAGE_TEMPLATE.format(organization=ORGANIZATION, name=name)),
         outputs=outputs,
         split=split,
+        split_files=split_files,
+        publish_split=publish_split,
         inputs=inputs,
         operations=_parse_operations(_require_mapping(raw.get("operations", {}), where="operations"), cache_name=name),
         description=_parse_description(
@@ -379,6 +429,7 @@ def as_shell(config: CacheConfig, /, *, operation: str = DEFAULT_OPERATION) -> s
         f"CACHE_IMAGE={shlex.quote(config.image)}",
         f"CACHE_URL={shlex.quote(REPOSITORY_URL_TEMPLATE.format(organization=ORGANIZATION, name=config.name))}",
         _shell_array("CACHE_OUTPUTS", config.outputs),
+        _shell_array("CACHE_DIST_FILES", config.dist_files),
         _shell_array("INPUT_PATHS", [input_cache.path for input_cache in config.inputs]),
         _shell_array("INPUT_URLS", [input_cache.url for input_cache in config.inputs]),
         _shell_array("INPUT_BRANCHES", [input_cache.branch for input_cache in config.inputs]),
@@ -396,7 +447,14 @@ def describe(config: CacheConfig, /) -> str:
         f"cache:      {config.name}",
         f"image:      {config.image}",
         f"outputs:    {', '.join(config.outputs)}",
-        *([f"split:      {', '.join(config.split)}"] if config.split else []),
+        *(
+            [
+                f"split:      {', '.join(config.split)} into {config.split_files} files"
+                + (", published separately" if config.publish_split else "")
+            ]
+            if config.split
+            else []
+        ),
         f"operations: {', '.join(sorted(config.operations))}",
     ]
     lines.extend(

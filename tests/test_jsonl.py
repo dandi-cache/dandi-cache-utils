@@ -150,3 +150,31 @@ def test_records_are_written_one_json_value_per_line(tmp_path):
 
     assert written == 2
     assert [json.loads(line) for line in file_path.read_text().splitlines()] == [{"a": 1}, {"b": 2}]
+
+
+@pytest.mark.ai_generated
+def test_a_split_output_published_separately_is_compressed_file_by_file(tmp_path):
+    derivatives = tmp_path / "derivatives"
+    derivatives.mkdir()
+    for prefix in "0123456789abcdef":
+        (derivatives / f"cache_{prefix}.jsonl").write_text(f'{{"{prefix}1": 1}}\n')
+
+    compressed = dandi_cache.compress_derivatives(tmp_path, separate={"cache.jsonl"})
+
+    assert [path.name for path in compressed] == [f"cache_{prefix}.jsonl.gz" for prefix in "0123456789abcdef"]
+    assert not (derivatives / "cache.jsonl.gz").exists()
+
+
+@pytest.mark.ai_generated
+def test_an_output_kept_as_256_files_is_joined_by_default(tmp_path):
+    derivatives = tmp_path / "derivatives"
+    derivatives.mkdir()
+    for first in "0123456789abcdef":
+        for second in "0123456789abcdef":
+            (derivatives / f"cache_{first}{second}.jsonl").write_text("")
+    (derivatives / "cache_ff.jsonl").write_text('{"ff1": 1}\n')
+
+    compressed = dandi_cache.compress_derivatives(tmp_path)
+
+    assert [path.name for path in compressed] == ["cache.jsonl.gz"]
+    assert gzip.decompress((derivatives / "cache.jsonl.gz").read_bytes()) == b'{"ff1": 1}\n'

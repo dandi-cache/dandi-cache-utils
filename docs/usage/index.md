@@ -35,6 +35,8 @@ The file stem, the image reference, the output file name, and each input's URL, 
 | `image` | `ghcr.io/dandi-cache/<name>` | This cache's runtime image. |
 | `outputs` | `["<file_stem>.jsonl"]` | Every file published to `dist`. Declaring them is what keeps a `testing_` artifact from reaching consumers. |
 | `split` | `[]` | The outputs kept on `derivatives` as sixteen files rather than one. See below. |
+| `split_files` | `16` | How many files each split output is kept as: 16, by the first digit of each key, or 256, by the first two. |
+| `publish_split` | `false` | Publish the split outputs to `dist` as their separate compressed files rather than joined into one. |
 
 #### Outputs near GitHub's file limit
 
@@ -48,6 +50,9 @@ Two things guard against it.
   Nothing in `code/update.py` changes: `read_output_lookup`, `write_output_lookup` and `write_output_records` read and write the sixteen files for a split output, and the first run after declaring it reads the single file and removes it.
   `dist` still publishes it as the one `<stem>.jsonl.gz` it always did, the sixteen joined in order, so no consumer URL changes; compressed, it is a fraction of the size.
   A downstream cache needs no change either: `read_input` reads an upstream's sixteen files whenever its single file is absent.
+
+An output too large for sixteen files of under 100 MiB sets `split_files = 256`, and one too large to publish as one file even compressed sets `publish_split = true`, which puts its 256 files on `dist` one by one.
+Changing either is a one-line change whose next run migrates the files.
 
 ```toml
 [cache]

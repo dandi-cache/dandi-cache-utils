@@ -162,6 +162,7 @@ CACHE_NAME=""
 CACHE_IMAGE=""
 CACHE_URL=""
 CACHE_OUTPUTS=()
+CACHE_DIST_FILES=()
 INPUT_PATHS=()
 INPUT_URLS=()
 INPUT_BRANCHES=()
@@ -373,11 +374,12 @@ push_with_retry "${DS}" derivatives HEAD
 # artifact left by a smoke run from ever reaching consumers, and it replaces the guesswork of
 # globbing `derivatives/*.jsonl.gz`.
 # ---------------------------------------------------------------------------------------------
-dandi_cache compress --base-directory "${DS}"
+dandi_cache compress --base-directory "${DS}" --config "${CONFIG_FILE}"
 mkdir -p "${DISTDIR}/derivatives"
 
 published=0
-for output in "${CACHE_OUTPUTS[@]}"; do
+# Each declared output, compressed, or for one declared with `publish_split`, each of its files.
+for output in "${CACHE_DIST_FILES[@]}"; do
   if [ -f "${DS}/derivatives/${output}.gz" ]; then
     cp "${DS}/derivatives/${output}.gz" "${DISTDIR}/derivatives/"
     published=$((published + 1))

@@ -36,18 +36,31 @@ def _call_in_child(function: typing.Callable, arguments: tuple, connection) -> N
         connection.close()
 
 
-def run_isolated(function: typing.Callable, /, *, arguments: tuple = (), timeout_seconds: float) -> typing.Any:
-    """Call `function(*arguments)` in a forked child process and return its result.
+def run_isolated(
+    function: typing.Callable,
+    /,
+    *,
+    arguments: tuple = (),
+    timeout_seconds: float,
+    start_method: str = "fork",
+) -> typing.Any:
+    """Call `function(*arguments)` in a child process and return its result.
 
     Raises `TimeoutError` when the call takes longer than `timeout_seconds`, after killing the child.
     An exception the function raises is raised here as it was, or as a `RuntimeError` naming it
     when it cannot be pickled. A child that dies without answering, killed by the kernel for its
     memory or crashing inside a C extension, raises `ChildProcessError` with its exit code.
 
-    The child is forked, so it inherits everything the parent has imported and `function` need not
-    be importable by name. Its result crosses back by pickling, so it should be plain data.
+    The child is forked by default, so it inherits everything the parent has imported and `function`
+    need not be importable by name. Its result crosses back by pickling, so it should be plain data.
+
+    Pass `start_method="spawn"` when the parent runs other threads, as `run_incremental_update` does
+    with `workers`: a forked child inherits any lock another thread held at that moment, still
+    held, and can hang on it. A spawned child starts a fresh interpreter, at the cost of a second or
+    so of imports, and `function` must then be importable: a module-level function, which includes
+    one in a script guarded by `if __name__ == "__main__"`.
     """
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context(start_method)
     receiver, sender = context.Pipe(duplex=False)
     child = context.Process(target=_call_in_child, args=(function, arguments, sender), daemon=True)
     child.start()
