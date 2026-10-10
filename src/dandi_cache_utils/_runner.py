@@ -37,6 +37,7 @@ import typing
 
 from ._dataset import CacheDataset
 from ._logs import StagedErrorLog, logger, peak_memory_mib
+from ._logs import memory_limit_mib as _memory_limit_mib
 
 SKIP = "skip"
 RECORD = "record"
@@ -55,6 +56,7 @@ class BatchResult:
     succeeded: int = 0
     failed: int = 0
     elapsed_seconds: float = 0.0
+    stopped_for_memory: bool = False
 
     @property
     def elapsed_minutes(self) -> float:
@@ -128,6 +130,7 @@ def run_incremental_update(
     write: bool = True,
     workers: int = 1,
     in_memory: bool = True,
+    memory_limit_mib: float | None = None,
 ) -> tuple[dict, BatchResult]:
     """Process a batch of items and write the updated cache.
 
@@ -159,6 +162,14 @@ def run_incremental_update(
     read one at a time, keeping only which are recorded and which `retry_when` selects again, and
     each write merges this batch's results into only the files they belong to. The cache is then
     never loaded whole, and the mapping returned holds only this batch's results.
+
+    A batch stops early, and writes what it has, once this process's peak memory passes
+    `memory_limit_mib` -- by default three quarters of the memory the machine or its container has,
+    and `math.inf` turns it off. A process that grows past all of it is killed by the kernel, after a
+    long stall, and a killed run publishes nothing: a batch that reached 10 GB on a 16 GB runner lost
+    the 2200 results it had checkpointed. `BatchResult.stopped_for_memory` says it happened. The
+    limit saves the work, but the growth is still the cache's to fix, usually by running each item
+    in a child with `run_isolated`.
 
     Returns the full `{item: value}` mapping and a `BatchResult` describing the batch.
     """
@@ -202,6 +213,7 @@ def run_incremental_update(
         else select_new(candidates, selection_basis, limit=limit, retry_when=selection_retry)
     )
 
+    limit_mib = memory_limit_mib if memory_limit_mib is not None else _default_memory_limit_mib()
     result = BatchResult(considered=len(batch))
     staged_errors = StagedErrorLog(
         dataset.logs_directory,
@@ -268,6 +280,19 @@ def run_incremental_update(
                 if on_write is not None:
                     on_write()
                 logger.info("%s: checkpointed %d new records.", progress, len(records))
+
+            if peak_memory_mib() > limit_mib:
+                result.stopped_for_memory = True
+                logger.warning(
+                    "%s: peak memory %.0f MiB passed the %.0f MiB limit, so the batch stops after %d of %d items "
+                    "and writes what it has, rather than being killed and losing it.",
+                    progress,
+                    peak_memory_mib(),
+                    limit_mib,
+                    index,
+                    len(batch),
+                )
+                break
     finally:
         if executor is not None:
             executor.shutdown(wait=True, cancel_futures=True)
@@ -288,6 +313,11 @@ def run_incremental_update(
             peak_memory_mib(),
         )
     return records, result
+
+
+def _default_memory_limit_mib() -> float:
+    # Its own function, because inside `run_incremental_update` the parameter shadows the helper's name.
+    return _memory_limit_mib() or math.inf
 
 
 def run_full_rebuild(

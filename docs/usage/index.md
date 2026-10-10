@@ -235,6 +235,22 @@ def measure(content_id, item):
 The call's own exception is raised as it was, and a child that dies without answering raises `ChildProcessError`.
 The result crosses back by pickling, so it should be plain data.
 
+### Bounding a batch's memory
+
+A child process is also the only way to give memory back.
+HDF5, pynwb and the NWB Inspector hold on to what they allocate, so one process that opens and inspects files grows with every file, about 5 MB each, and never shrinks: a batch of 2500 reached 10 GB.
+A runner has 16 GB, and a process that outgrows it is not stopped politely.
+The run stalls for most of an hour and is then killed, and because a killed run publishes nothing, the results it had already checkpointed are lost with it.
+
+So a cache that opens files itself should do it in a child per file, as above, returning only plain data, and the growth stays in the children.
+Fork the child (the default) after importing `h5py`, `pynwb` and the rest in the parent, so it inherits them instead of importing them again for every file.
+A `cache.toml` `limit` is then about time, not memory.
+
+`run_incremental_update` also watches the process's peak memory.
+Once it passes `memory_limit_mib`, which defaults to three quarters of the memory the machine or its container has, the batch stops early and writes what it has, and `BatchResult.stopped_for_memory` says so.
+That turns a lost batch into a short one, but the growth is still the cache's to fix; the log line says how far the batch got.
+Pass `memory_limit_mib=math.inf` to turn it off.
+
 ### Choosing the link policy
 
 The other thing the library will not guess, for a cache that walks an NWB file's structure.
