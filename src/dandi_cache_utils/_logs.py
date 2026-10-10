@@ -11,6 +11,7 @@ Every cache logs the same three things, so all three live here:
 
 import datetime
 import logging
+import os
 import pathlib
 import resource
 import sys
@@ -35,6 +36,32 @@ logger = logging.getLogger("dandi_cache")
 def peak_memory_mib() -> float:
     """Peak resident set size of this process so far, in MiB (Linux reports `ru_maxrss` in KiB)."""
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+
+
+_CGROUP_LIMIT_FILES = (
+    pathlib.Path("/sys/fs/cgroup/memory.max"),
+    pathlib.Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"),
+)
+
+
+def memory_limit_mib(fraction: float = 0.75, /) -> float | None:
+    """`fraction` of the memory this process can use, in MiB, or `None` where that cannot be told.
+
+    That is the smaller of the machine's physical memory and any limit its container was given. A
+    process that grows past the whole of it is killed by the kernel without a chance to save
+    anything, and before that it can spend a long time thrashing, so the useful limit to stop at is
+    a share of it.
+    """
+    try:
+        available = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        return None
+    for limit_file in _CGROUP_LIMIT_FILES:
+        try:
+            available = min(available, int(limit_file.read_text().strip()))
+        except (OSError, ValueError):  # Absent, or "max" for no limit.
+            continue
+    return available * fraction / 2**20
 
 
 def configure_logging(log_directory: pathlib.Path, /, *, stem: str = "update") -> pathlib.Path:

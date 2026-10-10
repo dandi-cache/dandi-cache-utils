@@ -12,6 +12,9 @@
 
 ### 🚀 Enhancement
 
+- `run_incremental_update` stops a batch early, and writes what it has, once the process's peak memory passes `memory_limit_mib`, which defaults to three quarters of the memory the machine or its container has (`math.inf` turns it off); `BatchResult.stopped_for_memory` says it happened.
+  A batch of `content-id-to-valid-nwb-file` grew to 10 GB inspecting files in one process, stalled, and was killed on a 16 GB runner, and a killed run publishes nothing, so the 2200 results it had checkpointed were lost.
+  The usage guide now says what that cache's fix was: open and inspect each file in a child process with `run_isolated`, which returns all of its memory, since HDF5 and pynwb never do.
 - `run_incremental_update` takes `in_memory=False`, for a split output too large to load whole.
   The recorded items are read one at a time, keeping only which are recorded and which `retry_when` selects again, and every checkpoint merges only the results added since the last one into only the files they belong to. The mapping returned holds only this batch's results.
   The pieces are public: `dataset.iter_output()` and `dataset.iter_input()` yield `(key, value)` pairs one at a time, from a single file or its split files, and `dataset.merge_output_lookup(records)` rewrites only the split files `records` touch.

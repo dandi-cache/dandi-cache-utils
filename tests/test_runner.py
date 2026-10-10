@@ -6,6 +6,7 @@ differences that caused real bugs.
 """
 
 import dataclasses
+import math
 import pathlib
 
 import pytest
@@ -832,3 +833,47 @@ def test_an_update_out_of_memory_needs_a_split_output_and_no_preloaded_records(s
             recorded={},
             in_memory=False,
         )
+
+
+@pytest.mark.ai_generated
+def test_a_batch_that_outgrows_its_memory_limit_stops_early_and_keeps_what_it_did(dataset, monkeypatch):
+    done = []
+    monkeypatch.setattr("dandi_cache_utils._runner.peak_memory_mib", lambda: 10**6 if len(done) >= 3 else 1.0)
+
+    def process(item):
+        done.append(item)
+        return True
+
+    records, result = dandi_cache.run_incremental_update(
+        dataset,
+        candidates=[f"{i:02d}" for i in range(10)],
+        process=process,
+        memory_limit_mib=1000,
+    )
+
+    assert result.stopped_for_memory
+    assert result.considered == 10
+    assert sorted(records) == ["00", "01", "02"]
+    assert dataset.read_output_lookup() == records
+
+
+@pytest.mark.ai_generated
+def test_the_memory_limit_can_be_turned_off(dataset, monkeypatch):
+    monkeypatch.setattr("dandi_cache_utils._runner.peak_memory_mib", lambda: 10**9)
+
+    records, result = dandi_cache.run_incremental_update(
+        dataset, candidates=["a", "b", "c"], process=lambda item: True, memory_limit_mib=math.inf
+    )
+
+    assert not result.stopped_for_memory
+    assert sorted(records) == ["a", "b", "c"]
+
+
+@pytest.mark.ai_generated
+def test_the_default_memory_limit_is_a_share_of_what_the_machine_has():
+    from dandi_cache_utils._logs import memory_limit_mib
+
+    whole, half = memory_limit_mib(1.0), memory_limit_mib(0.5)
+
+    assert whole is not None and whole > 0
+    assert half == pytest.approx(whole / 2)
