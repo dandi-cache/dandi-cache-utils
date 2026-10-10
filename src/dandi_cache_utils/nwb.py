@@ -15,7 +15,6 @@ them in one pass rather than each cache writing its own traversal.
 
 import dataclasses
 import pathlib
-import typing
 
 from . import s3
 
@@ -30,7 +29,6 @@ __all__ = [
     "count_datasets",
     "count_groups",
     "detect_layout",
-    "electrical_series_paths",
     "inspect_nwbfile",
     "inspect_nwbfile_object",
     "inspector_config",
@@ -361,18 +359,6 @@ def inspect_nwbfile_object(nwbfile, /, *, config=None, importance_threshold: str
         importance_threshold=getattr(nwbinspector.Importance, importance_threshold),
     )
     return [str(message) for message in messages]
-
-
-def electrical_series_paths(url: str, /, *, prefix: str = "acquisition/") -> list[str]:
-    """The SpikeInterface-visible ElectricalSeries paths in a remote NWB file, filtered by prefix."""
-    import spikeinterface.extractors
-
-    paths: typing.Iterable[str] = (
-        spikeinterface.extractors.NwbRecordingExtractor.fetch_available_electrical_series_paths(
-            file_path=url, stream_mode="remfile"
-        )
-    )
-    return [series_path for series_path in paths if series_path.startswith(prefix)]
 
 
 def __dir__() -> list[str]:
