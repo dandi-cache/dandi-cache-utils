@@ -4,6 +4,9 @@
 
 ### 💥 Breaking
 
+- `nwb.electrical_series_paths` is gone, and with it the library's last use of SpikeInterface.
+  It existed for the two qualifying caches, and listing and opening an NWB file's ElectricalSeries is those caches' own business, as is the `spikeinterface` pin they carry: each now does it in a `code/ephys_recordings.py` of its own ([qualifying-aind-content-ids#76](https://github.com/dandi-cache/qualifying-aind-content-ids/pull/76), [qualifying-lfp-content-ids#17](https://github.com/dandi-cache/qualifying-lfp-content-ids/pull/17)).
+  A cache that called it needs a function of its own that asks SpikeInterface for `NwbRecordingExtractor.fetch_available_electrical_series_paths`.
 - `run_full_rebuild` no longer takes a `limit`, because a limit bounds the work a run does and never the records it publishes.
   It used to `islice` the records on their way out, so a rebuild cache that declared `limit = 500` would publish 500 entries and delete the rest of itself from every consumer -- and six of the organization's caches reached that code path by passing their configured limit straight through.
   A rebuild cache that has real work to bound now bounds it inside `build`, on what it fetches, and still publishes everything it knows.
