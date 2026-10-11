@@ -269,7 +269,7 @@ def _check_description(config: _config.CacheConfig, /, *, rendered: str) -> None
     rich_click.echo(f"ERROR: {committed} is not what cache.toml declares.", err=True)
     rich_click.echo("".join(difference), err=True, nl=False)
     rich_click.echo(
-        f"\nRegenerate it with:\n  dandi-cache dataset-description --declared --output {DESCRIPTION_FILE}",
+        "\nRegenerate it with:\n" f"  dandi-cache dataset-description --declared --output {DESCRIPTION_FILE}",
         err=True,
     )
     raise SystemExit(1)

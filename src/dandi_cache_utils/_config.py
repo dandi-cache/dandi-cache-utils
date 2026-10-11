@@ -198,7 +198,7 @@ def _parse_input(raw: dict, /) -> InputCache:
         url=raw.get("url", REPOSITORY_URL_TEMPLATE.format(organization=ORGANIZATION, name=name)),
         path=raw.get("path", f"sourcedata/{name}"),
         branch=raw.get("branch", DEFAULT_INPUT_BRANCH),
-        file_name=raw.get("file", f"{name.replace('-', '_')}.jsonl"),
+        file_name=raw.get("file", f'{name.replace("-", "_")}.jsonl'),
         format=input_format,
     )
 

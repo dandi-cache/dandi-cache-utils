@@ -36,9 +36,9 @@ def test_every_declared_operation_has_a_script(example):
     parsed = dandi_cache.read_config(example / dandi_cache.CONFIG_FILE_NAME)
 
     for operation in parsed.operations.values():
-        assert (example / operation.script).is_file(), (
-            f"{example.name} declares {operation.script} but has no such file"
-        )
+        assert (
+            example / operation.script
+        ).is_file(), f"{example.name} declares {operation.script} but has no such file"
 
 
 @pytest.mark.ai_generated

@@ -36,7 +36,7 @@ class StubClient:
             yield {"Contents": [{"Key": key} for key in keys]}
             return
         # The listing's directory mode: one entry per distinct first segment below the prefix.
-        prefixes = sorted({f"{Prefix}{key[len(Prefix) :].split(Delimiter)[0]}{Delimiter}" for key in keys})
+        prefixes = sorted({f"{Prefix}{key[len(Prefix):].split(Delimiter)[0]}{Delimiter}" for key in keys})
         yield {"CommonPrefixes": [{"Prefix": prefix} for prefix in prefixes]}
 
     def get_object(self, *, Bucket, Key):  # noqa: N803
