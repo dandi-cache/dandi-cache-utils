@@ -67,22 +67,21 @@ def test_dataset_description_writes_the_declared_metadata(tmp_path):
 
 @pytest.mark.ai_generated
 def test_compress_reports_when_there_is_nothing_to_do(tmp_path):
-    result = invoke("compress", "--base-directory", str(tmp_path))
+    config_file = tmp_path / "cache.toml"
+    config_file.write_text('[cache]\nname = "my-cache"\n')
+
+    result = invoke(
+        "compress",
+        "--base-directory",
+        str(tmp_path),
+        "--config",
+        str(config_file),
+        "--dist-directory",
+        str(tmp_path / "dist"),
+    )
 
     assert result.exit_code == 0
-    assert "No derivatives/*.jsonl files found" in result.output
-
-
-@pytest.mark.ai_generated
-def test_compress_writes_one_archive_per_derivative(tmp_path):
-    derivatives = tmp_path / "derivatives"
-    derivatives.mkdir()
-    (derivatives / "example.jsonl").write_text('{"a": 1}\n')
-
-    result = invoke("compress", "--base-directory", str(tmp_path))
-
-    assert result.exit_code == 0
-    assert (derivatives / "example.jsonl.gz").is_file() is True
+    assert "No declared outputs found" in result.output
 
 
 LIMIT = dandi_cache_utils.GITHUB_FILE_LIMIT_BYTES
@@ -117,7 +116,7 @@ def test_check_sizes_warns_near_the_limit_and_reports_it_as_a_step_output(tmp_pa
 
     assert result.exit_code == 0
     assert "::warning" in result.output
-    assert "Declare `cache.jsonl` in `split`" in result.output
+    assert "left over from an older version" in result.output
     assert output.read_text().startswith("size-warnings<<SIZE_WARNINGS_END\nderivatives/cache.jsonl is ")
     assert "derivatives/cache.jsonl" in (tmp_path / "summary.md").read_text()
 

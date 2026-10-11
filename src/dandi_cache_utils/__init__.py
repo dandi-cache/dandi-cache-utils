@@ -45,8 +45,6 @@ from ._config import (
 from ._dataset import CacheDataset
 from ._isolation import run_isolated
 from ._jsonl import (
-    compress,
-    compress_derivatives,
     read_ids,
     read_input,
     read_lookup,
@@ -89,8 +87,6 @@ __all__ = [
     "as_shell",
     "dataset_description",
     "build_parser",
-    "compress",
-    "compress_derivatives",
     "configure_logging",
     "dandi_cache_cli",
     "load_config",

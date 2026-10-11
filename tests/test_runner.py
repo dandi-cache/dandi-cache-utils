@@ -6,13 +6,14 @@ differences that caused real bugs.
 """
 
 import dataclasses
+import json
 import math
 import pathlib
 
 import pytest
 
 import dandi_cache_utils as dandi_cache
-from dandi_cache_utils import CacheDataset
+from dandi_cache_utils import CacheDataset, _zarr
 
 
 @pytest.fixture
@@ -118,6 +119,10 @@ def test_testing_without_a_testing_limit_runs_the_ordinary_batch(tmp_path):
     assert dataset.limit(50) == 50
 
 
+def _stored_records(dataset: CacheDataset, name: str | None = None) -> list:
+    return [json.loads(line) for line in _zarr.iter_lines(dataset.output_store_path(name))]
+
+
 @pytest.mark.ai_generated
 def test_an_update_records_only_what_is_new(dataset):
     dataset.write_output_lookup({"a": 1})
@@ -130,7 +135,7 @@ def test_an_update_records_only_what_is_new(dataset):
 
     assert records == {"a": 1, "b": 2, "c": 2}
     assert (result.considered, result.succeeded, result.failed) == (2, 2, 0)
-    assert dandi_cache.read_lookup(dataset.output_file_path()) == {"a": 1, "b": 2, "c": 2}
+    assert dataset.read_output_lookup() == {"a": 1, "b": 2, "c": 2}
 
 
 @pytest.mark.ai_generated
@@ -143,7 +148,7 @@ def test_a_limit_bounds_the_batch(dataset):
     )
 
     assert result.considered == 2
-    assert sorted(dandi_cache.read_lookup(dataset.output_file_path())) == ["a", "b"]
+    assert sorted(dataset.read_output_lookup()) == ["a", "b"]
 
 
 @pytest.mark.ai_generated
@@ -336,7 +341,7 @@ def test_checkpoints_survive_a_killed_run(dataset):
         dandi_cache.run_incremental_update(dataset, candidates=list("abcd"), process=process, checkpoint_every=2)
 
     assert processed == ["a", "b", "c"]
-    assert sorted(dandi_cache.read_lookup(dataset.output_file_path())) == ["a", "b"]
+    assert sorted(dataset.read_output_lookup()) == ["a", "b"]
 
 
 @pytest.mark.ai_generated
@@ -378,9 +383,7 @@ def test_side_outputs_are_written_with_the_cache(dataset):
         on_write=lambda: dataset.write_output_lookup(checked_at, "my_cache_checked_at.jsonl"),
     )
 
-    assert dandi_cache.read_lookup(dataset.output_file_path("my_cache_checked_at.jsonl")) == {
-        item: "2026-09-15" for item in "abcd"
-    }
+    assert dataset.read_output_lookup("my_cache_checked_at.jsonl") == {item: "2026-09-15" for item in "abcd"}
 
 
 @pytest.mark.ai_generated
@@ -402,8 +405,8 @@ def test_side_outputs_keep_up_with_a_killed_run(dataset):
             on_write=lambda: dataset.write_output_lookup(checked_at, "my_cache_checked_at.jsonl"),
         )
 
-    assert sorted(dandi_cache.read_lookup(dataset.output_file_path())) == ["a", "b"]
-    assert sorted(dandi_cache.read_lookup(dataset.output_file_path("my_cache_checked_at.jsonl"))) == ["a", "b"]
+    assert sorted(dataset.read_output_lookup()) == ["a", "b"]
+    assert sorted(dataset.read_output_lookup("my_cache_checked_at.jsonl")) == ["a", "b"]
 
 
 @pytest.mark.ai_generated
@@ -415,9 +418,9 @@ def test_testing_mode_never_touches_the_real_cache(tmp_path):
     testing = CacheDataset(config=cache_config, base_directory=tmp_path, testing=True)
     dandi_cache.run_incremental_update(testing, candidates=["a", "b"], process=lambda item: 1)
 
-    assert dandi_cache.read_lookup(real.output_file_path()) == {"already": "here"}
+    assert real.read_output_lookup() == {"already": "here"}
     assert testing.output_file_path().name == "testing_my_cache.jsonl"
-    assert sorted(dandi_cache.read_lookup(testing.output_file_path())) == ["a", "b"]
+    assert sorted(testing.read_output_lookup()) == ["a", "b"]
 
 
 @pytest.mark.ai_generated
@@ -425,8 +428,8 @@ def test_a_second_output_is_written_separately(dataset):
     dandi_cache.run_incremental_update(dataset, candidates=["a"], process=lambda item: True)
     dataset.write_output_lookup({"a": "2026-09-12"}, "my_cache_checked_at.jsonl")
 
-    assert dandi_cache.read_lookup(dataset.output_file_path()) == {"a": True}
-    assert dandi_cache.read_lookup(dataset.output_file_path("my_cache_checked_at.jsonl")) == {"a": "2026-09-12"}
+    assert dataset.read_output_lookup() == {"a": True}
+    assert dataset.read_output_lookup("my_cache_checked_at.jsonl") == {"a": "2026-09-12"}
 
 
 @pytest.mark.ai_generated
@@ -444,7 +447,7 @@ def test_a_full_rebuild_writes_a_record_list(tmp_path):
 
     assert records == [{"a": 1}, {"b": 2}]
     assert result.processed == 2
-    assert dandi_cache.read_records(dataset.output_file_path()) == [{"a": 1}, {"b": 2}]
+    assert _stored_records(dataset) == [{"a": 1}, {"b": 2}]
 
 
 @pytest.mark.ai_generated
@@ -467,7 +470,7 @@ def test_a_full_rebuild_cannot_truncate_what_it_publishes(tmp_path):
     # A declared limit is for `build` to apply to its own work; it never reaches the output.
     records, _result = dandi_cache.run_full_rebuild(dataset, build=lambda: [{"a": 1}, {"b": 2}, {"c": 3}])
     assert len(records) == 3
-    assert len(dandi_cache.read_records(dataset.output_file_path())) == 3
+    assert len(_stored_records(dataset)) == 3
 
 
 @pytest.mark.ai_generated
@@ -493,105 +496,12 @@ def test_the_logs_directory_is_beside_the_derivatives(dataset, tmp_path):
 
 
 @pytest.fixture
-def split_dataset(tmp_path) -> CacheDataset:
+def two_outputs(tmp_path) -> CacheDataset:
     cache_config = dandi_cache.parse_config(
-        {
-            "cache": {
-                "name": "my-cache",
-                "outputs": ["my_cache.jsonl", "my_cache_messages.jsonl"],
-                "split": ["my_cache_messages.jsonl"],
-            },
-        },
+        {"cache": {"name": "my-cache", "outputs": ["my_cache.jsonl", "my_cache_messages.jsonl"]}},
         directory=tmp_path,
     )
     return CacheDataset(config=cache_config, base_directory=tmp_path)
-
-
-def _shard(dataset: CacheDataset, prefix: str, /) -> pathlib.Path:
-    return dataset.derivatives_directory / f"{dataset.log_prefix}my_cache_messages_{prefix}.jsonl"
-
-
-@pytest.mark.ai_generated
-def test_a_split_output_is_written_by_first_digit_and_read_back_whole(split_dataset):
-    records = {"0a": {"messages": ["x"]}, "0b": 1, "f9": [2], "A1": "upper case goes to the a file"}
-
-    file_path = split_dataset.write_output_lookup(records, "my_cache_messages.jsonl")
-
-    assert file_path == split_dataset.derivatives_directory / "my_cache_messages.jsonl"
-    assert not file_path.exists()
-    assert dandi_cache.read_lookup(_shard(split_dataset, "0")) == {"0a": {"messages": ["x"]}, "0b": 1}
-    assert dandi_cache.read_lookup(_shard(split_dataset, "a")) == {"A1": "upper case goes to the a file"}
-    # An empty file is still written, so the set of files never depends on the data.
-    assert _shard(split_dataset, "5").read_text() == ""
-    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == records
-
-
-@pytest.mark.ai_generated
-def test_a_split_output_refuses_a_key_with_no_hexadecimal_first_digit(split_dataset):
-    with pytest.raises(ValueError, match="hexadecimal"):
-        split_dataset.write_output_lookup({"zz": 1}, "my_cache_messages.jsonl")
-
-
-@pytest.mark.ai_generated
-def test_only_a_declared_output_can_be_split(tmp_path):
-    with pytest.raises(ValueError, match="only an output can be split"):
-        dandi_cache.parse_config({"cache": {"name": "my-cache", "split": ["other.jsonl"]}}, directory=tmp_path)
-
-
-@pytest.mark.ai_generated
-def test_an_update_of_a_newly_split_output_migrates_the_single_file_and_removes_it(split_dataset):
-    single = split_dataset.derivatives_directory / "my_cache_messages.jsonl"
-    dandi_cache.write_lookup(single, {"0a": 1, "fb": 2})
-
-    records, result = dandi_cache.run_incremental_update(
-        split_dataset,
-        candidates=["0a", "fb", "c1"],
-        process=lambda item: 3,
-        output="my_cache_messages.jsonl",
-    )
-
-    assert result.considered == 1
-    assert records == {"0a": 1, "fb": 2, "c1": 3}
-    assert not single.exists()
-    assert dandi_cache.read_lookup(_shard(split_dataset, "c")) == {"c1": 3}
-    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == records
-
-
-@pytest.mark.ai_generated
-def test_undeclaring_a_split_joins_the_output_back_into_one_file(split_dataset, tmp_path):
-    split_dataset.write_output_lookup({"0a": 1, "fb": 2}, "my_cache_messages.jsonl")
-    unsplit = dataclasses.replace(split_dataset, config=dataclasses.replace(split_dataset.config, split=()))
-
-    assert unsplit.read_output_lookup("my_cache_messages.jsonl") == {"0a": 1, "fb": 2}
-    unsplit.write_output_lookup({"0a": 1, "fb": 2}, "my_cache_messages.jsonl")
-
-    assert not any(_shard(split_dataset, prefix).exists() for prefix in "0123456789abcdef")
-    assert dandi_cache.read_lookup(tmp_path / "derivatives" / "my_cache_messages.jsonl") == {"0a": 1, "fb": 2}
-
-
-@pytest.mark.ai_generated
-def test_a_split_output_in_testing_mode_never_touches_the_real_files(split_dataset):
-    testing = dataclasses.replace(split_dataset, testing=True)
-
-    testing.write_output_lookup({"0a": 1}, "my_cache_messages.jsonl")
-
-    assert dandi_cache.read_lookup(_shard(testing, "0")) == {"0a": 1}
-    assert not _shard(split_dataset, "0").exists()
-
-
-@pytest.mark.ai_generated
-def test_a_split_rebuild_writes_each_record_to_its_file(tmp_path):
-    cache_config = dandi_cache.parse_config(
-        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"]}},
-        directory=tmp_path,
-    )
-    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
-
-    dandi_cache.run_full_rebuild(dataset, build=lambda: [{"0a": 1}, {"f1": 2}, {"0b": 3}])
-
-    assert dandi_cache.read_records(tmp_path / "derivatives" / "my_cache_0.jsonl") == [{"0a": 1}, {"0b": 3}]
-    assert dandi_cache.read_records(tmp_path / "derivatives" / "my_cache_f.jsonl") == [{"f1": 2}]
-    assert not (tmp_path / "derivatives" / "my_cache.jsonl").exists()
 
 
 @pytest.mark.ai_generated
@@ -602,7 +512,7 @@ def test_a_split_rebuild_writes_each_record_to_its_file(tmp_path):
         ("records", [{"0a": 1}, {"f1": 2}]),
     ],
 )
-def test_a_split_upstream_is_read_as_one_input(tmp_path, format, expected):
+def test_an_upstream_kept_as_split_files_is_read_as_one_input(tmp_path, format, expected):
     cache_config = dandi_cache.parse_config(
         {"cache": {"name": "my-cache"}, "inputs": [{"name": "up-stream", "format": format}]},
         directory=tmp_path,
@@ -619,42 +529,17 @@ def test_a_split_upstream_is_read_as_one_input(tmp_path, format, expected):
 
 
 @pytest.mark.ai_generated
-def test_an_output_split_into_256_files_goes_by_the_first_two_digits(tmp_path):
+def test_an_upstream_split_into_4096_files_is_read_as_one_input(tmp_path):
     cache_config = dandi_cache.parse_config(
-        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": 256}},
-        directory=tmp_path,
+        {"cache": {"name": "my-cache"}, "inputs": [{"name": "up-stream"}]}, directory=tmp_path
     )
     dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
-    records = {"0a1": 1, "0b2": 2, "FF3": 3}
+    single = dataset.input_file_path()
+    single.parent.mkdir(parents=True)
+    dandi_cache.write_lookup(single.with_name("up_stream_0a1.jsonl"), {"0a1-x": 1})
+    dandi_cache.write_lookup(single.with_name("up_stream_ff2.jsonl"), {"ff2-y": 2})
 
-    dataset.write_output_lookup(records, "my_cache.jsonl")
-
-    derivatives = tmp_path / "derivatives"
-    assert len(list(derivatives.glob("my_cache_??.jsonl"))) == 256
-    assert dandi_cache.read_lookup(derivatives / "my_cache_0a.jsonl") == {"0a1": 1}
-    assert dandi_cache.read_lookup(derivatives / "my_cache_ff.jsonl") == {"FF3": 3}
-    assert dataset.read_output_lookup("my_cache.jsonl") == records
-    with pytest.raises(ValueError, match="2 hexadecimal"):
-        dataset.write_output_lookup({"0z": 1}, "my_cache.jsonl")
-
-
-@pytest.mark.ai_generated
-def test_widening_a_split_migrates_the_sixteen_files_and_removes_them(tmp_path):
-    def open_with(files: int) -> CacheDataset:
-        config = dandi_cache.parse_config(
-            {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": files}}, directory=tmp_path
-        )
-        return CacheDataset(config=config, base_directory=tmp_path)
-
-    open_with(16).write_output_lookup({"0a": 1, "f1": 2}, "my_cache.jsonl")
-    wider = open_with(256)
-
-    assert wider.read_output_lookup("my_cache.jsonl") == {"0a": 1, "f1": 2}
-    wider.write_output_lookup({"0a": 1, "f1": 2}, "my_cache.jsonl")
-
-    derivatives = tmp_path / "derivatives"
-    assert not list(derivatives.glob("my_cache_?.jsonl"))
-    assert dandi_cache.read_lookup(derivatives / "my_cache_f1.jsonl") == {"f1": 2}
+    assert dataset.read_input() == {"0a1-x": 1, "ff2-y": 2}
 
 
 @pytest.mark.ai_generated
@@ -669,37 +554,6 @@ def test_an_upstream_split_into_256_files_is_read_as_one_input(tmp_path):
     dandi_cache.write_lookup(single.with_name("up_stream_ff.jsonl"), {"ff2": 2})
 
     assert dataset.read_input() == {"0a1": 1, "ff2": 2}
-
-
-@pytest.mark.ai_generated
-def test_split_settings_need_a_split_to_describe(tmp_path):
-    with pytest.raises(ValueError, match="describe `cache.split`"):
-        dandi_cache.parse_config({"cache": {"name": "my-cache", "publish_split": True}}, directory=tmp_path)
-    with pytest.raises(ValueError, match="16 or 256"):
-        dandi_cache.parse_config(
-            {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": 64}}, directory=tmp_path
-        )
-
-
-@pytest.mark.ai_generated
-def test_a_published_split_lists_each_file_for_dist(tmp_path):
-    config = dandi_cache.parse_config(
-        {
-            "cache": {
-                "name": "my-cache",
-                "outputs": ["my_cache.jsonl", "other.jsonl"],
-                "split": ["my_cache.jsonl"],
-                "split_files": 256,
-                "publish_split": True,
-            }
-        },
-        directory=tmp_path,
-    )
-
-    assert config.dist_files[0] == "my_cache_00.jsonl"
-    assert config.dist_files[-1] == "other.jsonl"
-    assert len(config.dist_files) == 257
-    assert "CACHE_DIST_FILES=(my_cache_00.jsonl" in dandi_cache.as_shell(config)
 
 
 @pytest.mark.ai_generated
@@ -741,15 +595,15 @@ def test_items_processed_concurrently_are_recorded_like_serial_ones(tmp_path, da
 
 
 @pytest.mark.ai_generated
-def test_a_split_output_streams_one_item_at_a_time(split_dataset):
-    split_dataset.write_output_lookup({"0a": 1, "fb": 2}, "my_cache_messages.jsonl")
+def test_an_output_streams_one_item_at_a_time(two_outputs):
+    two_outputs.write_output_lookup({"0a": 1, "fb": 2}, "my_cache_messages.jsonl")
 
-    assert dict(split_dataset.iter_output("my_cache_messages.jsonl")) == {"0a": 1, "fb": 2}
-    assert list(split_dataset.iter_output("my_cache.jsonl")) == []
+    assert dict(two_outputs.iter_output("my_cache_messages.jsonl")) == {"0a": 1, "fb": 2}
+    assert list(two_outputs.iter_output("my_cache.jsonl")) == []
 
 
 @pytest.mark.ai_generated
-def test_a_split_upstream_streams_one_item_at_a_time(tmp_path):
+def test_an_upstream_kept_as_split_files_streams_one_item_at_a_time(tmp_path):
     cache_config = dandi_cache.parse_config(
         {"cache": {"name": "my-cache"}, "inputs": [{"name": "up-stream", "format": "lookup"}]},
         directory=tmp_path,
@@ -768,42 +622,23 @@ def test_a_split_upstream_streams_one_item_at_a_time(tmp_path):
 
 
 @pytest.mark.ai_generated
-def test_merging_into_a_split_output_rewrites_only_the_files_it_touches(split_dataset):
-    split_dataset.write_output_lookup({"0a": 1, "fb": 2}, "my_cache_messages.jsonl")
-    untouched = _shard(split_dataset, "f")
-    untouched.write_text(untouched.read_text() + "")  # Same content; its mtime is the witness.
-    before = untouched.stat().st_mtime_ns
-
-    split_dataset.merge_output_lookup({"0c": 3, "0a": 4}, "my_cache_messages.jsonl")
-
-    assert dandi_cache.read_lookup(_shard(split_dataset, "0")) == {"0a": 4, "0c": 3}
-    assert untouched.stat().st_mtime_ns == before
-    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == {"0a": 4, "0c": 3, "fb": 2}
-
-
-@pytest.mark.ai_generated
-def test_merging_into_an_output_not_yet_split_migrates_it(split_dataset):
-    single = split_dataset.derivatives_directory / "my_cache_messages.jsonl"
+def test_merging_into_an_output_kept_as_a_file_moves_it_into_its_store(two_outputs):
+    single = two_outputs.derivatives_directory / "my_cache_messages.jsonl"
     dandi_cache.write_lookup(single, {"0a": 1, "fb": 2})
 
-    split_dataset.merge_output_lookup({"c1": 3}, "my_cache_messages.jsonl")
+    two_outputs.merge_output_lookup({"c1": 3}, "my_cache_messages.jsonl")
 
     assert not single.exists()
-    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == {"0a": 1, "fb": 2, "c1": 3}
+    assert two_outputs.output_store_path("my_cache_messages.jsonl").is_dir()
+    assert two_outputs.read_output_lookup("my_cache_messages.jsonl") == {"0a": 1, "fb": 2, "c1": 3}
 
 
 @pytest.mark.ai_generated
-def test_only_a_split_output_can_be_merged_into(split_dataset):
-    with pytest.raises(ValueError, match="cache.split"):
-        split_dataset.merge_output_lookup({"0a": 1}, "my_cache.jsonl")
-
-
-@pytest.mark.ai_generated
-def test_an_update_out_of_memory_returns_only_its_batch_and_keeps_the_rest(split_dataset):
-    split_dataset.write_output_lookup({"0a": 1, "fb": "retry"}, "my_cache_messages.jsonl")
+def test_an_update_out_of_memory_returns_only_its_batch_and_keeps_the_rest(two_outputs):
+    two_outputs.write_output_lookup({"0a": 1, "fb": "retry"}, "my_cache_messages.jsonl")
 
     records, result = dandi_cache.run_incremental_update(
-        split_dataset,
+        two_outputs,
         candidates=["0a", "fb", "c1", "c2", "d3"],
         process=lambda item: f"done {item}",
         output="my_cache_messages.jsonl",
@@ -815,18 +650,14 @@ def test_an_update_out_of_memory_returns_only_its_batch_and_keeps_the_rest(split
 
     assert records == {"fb": "done fb", "c1": "done c1", "c2": "done c2", "d3": "done d3"}
     assert result.succeeded == 4
-    assert split_dataset.read_output_lookup("my_cache_messages.jsonl") == {"0a": 1, **records}
+    assert two_outputs.read_output_lookup("my_cache_messages.jsonl") == {"0a": 1, **records}
 
 
 @pytest.mark.ai_generated
-def test_an_update_out_of_memory_needs_a_split_output_and_no_preloaded_records(split_dataset):
-    with pytest.raises(ValueError, match="cache.split"):
-        dandi_cache.run_incremental_update(
-            split_dataset, candidates=["0a"], process=lambda item: 1, output="my_cache.jsonl", in_memory=False
-        )
+def test_an_update_out_of_memory_takes_no_preloaded_records(two_outputs):
     with pytest.raises(ValueError, match="in_memory"):
         dandi_cache.run_incremental_update(
-            split_dataset,
+            two_outputs,
             candidates=["0a"],
             process=lambda item: 1,
             output="my_cache_messages.jsonl",

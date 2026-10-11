@@ -4,6 +4,13 @@
 
 ### 💥 Breaking
 
+- Every output is kept as a Zarr store, `derivatives/<stem>.zarr`, instead of as a JSONL file or as files split by key prefix.
+  The store is a 1-D `uint8` array of the JSON Lines text with no compression codec, so each chunk file is plain text that git diffs; a record never straddles two chunks; the group's `zarr.json` carries consolidated metadata; a replaced entry is a new line and the last one wins, and the end of `run_incremental_update` compacts the store once a fifth of its lines (and a thousand) are superseded. A run changes only the last chunk and any new ones, so there is no file to outgrow GitHub's 100 MiB limit, no width to choose and no repacking.
+  It is written and read with the standard library, so the library still imports nothing outside it, and `zarr-python` 3 opens what it writes, raw or compressed.
+  `split`, `split_digits`, `split_files`, `publish_split`, `zarr` and `zarr_chunk_bytes` are read and ignored with a warning; `chunk_bytes` (80 MB by default) sizes the chunks, and bounds the longest record.
+  An output kept as a file or as split files is moved into its store by its first write, and an upstream cache that has not moved yet is still read as it is, so nothing has to be done in a cache beyond removing those keys.
+  `dist` publishes each output as a compacted store with every chunk gzip-compressed, which is the Zarr `gzip` codec, so it opens over HTTP anywhere Zarr does and its chunks are gzip-compressed JSONL that needs no Zarr library. It no longer publishes `<stem>.jsonl.gz`: a consumer of that URL reads the chunks instead.
+  `compress` and `compress_derivatives` are gone, and `dandi-cache compress` takes `--config` and `--dist-directory`, both required. `CacheDataset` gains `read_output_ids`, `write_output_ids`, `output_store_path`, `compact_output` and `compact_output_if_superseded`; a cache that read or wrote an output's file by its path, as the two qualifying caches did for `error_ids`, uses them.
 - `nwb.electrical_series_paths` is gone, and with it the library's last use of SpikeInterface.
   It existed for the two qualifying caches, and listing and opening an NWB file's ElectricalSeries is those caches' own business, as is the `spikeinterface` pin they carry: each now does it in a `code/ephys_recordings.py` of its own ([qualifying-aind-content-ids#76](https://github.com/dandi-cache/qualifying-aind-content-ids/pull/76), [qualifying-lfp-content-ids#17](https://github.com/dandi-cache/qualifying-lfp-content-ids/pull/17)).
   A cache that called it needs a function of its own that asks SpikeInterface for `NwbRecordingExtractor.fetch_available_electrical_series_paths`.
@@ -13,19 +20,17 @@
 - `effective_limit` is gone. `dataset.limit(arguments.limit)` is the one way to resolve a batch cap, and it reads both the operation's `limit` and its `testing_limit` out of `cache.toml` rather than having the caller assemble them.
   Keeping a second entry point that took those as arguments meant two implementations of one rule, and the one nothing called was the one that could drift.
 
+
 ### 🚀 Enhancement
 
+- `dandi-cache validate DIRECTORY... [--with-zarr-python]` checks every Zarr store below the directories (metadata, chunks being whole lines of JSON, padding) and fails if any is malformed. With `--with-zarr-python` it also has `zarr` 3 decode every chunk in a throwaway environment and compares with the files' bytes. The pipeline runs it on `derivatives` before pushing it and on `dist` before publishing, so every cache's stores are checked on every run (a cross-check that cannot run fails the run), and a `ZarrCompatibility` CI job runs the tests that need `zarr` 3.
 - `run_incremental_update` stops a batch early, and writes what it has, once the process's peak memory passes `memory_limit_mib`, which defaults to three quarters of the memory the machine or its container has (`math.inf` turns it off); `BatchResult.stopped_for_memory` says it happened.
   A batch of `content-id-to-valid-nwb-file` grew to 10 GB inspecting files in one process, stalled, and was killed on a 16 GB runner, and a killed run publishes nothing, so the 2200 results it had checkpointed were lost.
   The usage guide now says what that cache's fix was: open and inspect each file in a child process with `run_isolated`, which returns all of its memory, since HDF5 and pynwb never do.
-- `run_incremental_update` takes `in_memory=False`, for a split output too large to load whole.
-  The recorded items are read one at a time, keeping only which are recorded and which `retry_when` selects again, and every checkpoint merges only the results added since the last one into only the files they belong to. The mapping returned holds only this batch's results.
-  The pieces are public: `dataset.iter_output()` and `dataset.iter_input()` yield `(key, value)` pairs one at a time, from a single file or its split files, and `dataset.merge_output_lookup(records)` rewrites only the split files `records` touch.
+- `run_incremental_update` takes `in_memory=False`, for an output too large to load whole.
+  The recorded items are read one at a time, keeping only which are recorded and which `retry_when` selects again, and every checkpoint appends only the results added since the last one. The mapping returned holds only this batch's results.
+  The pieces are public: `dataset.iter_output()` and `dataset.iter_input()` yield `(key, value)` pairs one at a time, and `dataset.merge_output_lookup(records)` appends `records` to an output without reading the rest of it.
   `valid-nwb-file-to-array-sizes` needs this: held in memory, its output at full coverage would take some 40 GB.
-- For an output far larger than the ones `split` was made for, `cache.toml` takes two more settings beside it ([#26](https://github.com/dandi-cache/dandi-cache-utils/pull/26)).
-  `split_files = 256` keeps each split output as 256 files, by the first two digits of each key, rather than 16. `publish_split = true` publishes those files to `dist` one by one, compressed, rather than joined into one file, for an output too large for GitHub's limit even compressed.
-  A split output is read from whichever layout it was last kept as, so changing either setting migrates on the next run.
-  `read_input` reads an upstream kept as 256 files the same way it reads one kept as 16.
 - `run_isolated` takes `start_method`, and `"spawn"` is the one to use beside `workers`: a child forked while other threads run inherits their locks, still held.
 - `run_incremental_update` takes `workers`, to process that many items at once, in threads, for an operation that waits on the network or on a child process.
   Only `process` runs in the threads; recording results, logging, `on_error`, `on_write` and checkpoints stay on the calling thread. `ErrorLog` appends are now locked, so concurrent failures cannot interleave in one log. ([#26](https://github.com/dandi-cache/dandi-cache-utils/pull/26))

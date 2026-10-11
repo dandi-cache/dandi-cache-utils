@@ -12,12 +12,14 @@ adding a third-party import here would break the orchestration.
 """
 
 import dataclasses
+import itertools
 import os
 import pathlib
 import shlex
 import sys
 import tomllib
 import typing
+import warnings
 
 CONFIG_FILE_NAME = "cache.toml"
 
@@ -28,31 +30,37 @@ REPOSITORY_URL_TEMPLATE = "https://github.com/{organization}/{name}.git"
 IMAGE_TEMPLATE = "ghcr.io/{organization}/{name}"
 
 #: GitHub refuses any file over 100 MiB, so a push of `derivatives` carrying one fails outright,
-#: after the whole run's work is done. An output that grows towards it is declared in
-#: `cache.split`, which keeps it on `derivatives` as sixteen files by the first digit of each key;
-#: `dist` still publishes it as one compressed file, which is far smaller.
+#: after the whole run's work is done. Every output is kept as a Zarr store whose chunk files are cut
+#: at `cache.chunk_bytes`, so no output ever holds a file near it.
 GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024
+
+#: The size of each chunk file of an output's Zarr store, unless `cache.chunk_bytes` says otherwise:
+#: 80 MB, under the point at which `check-sizes` starts warning about GitHub's 100 MiB limit.
+DEFAULT_CHUNK_BYTES = 80_000_000
+
+#: The `cache.toml` keys of the layouts there used to be a choice between, before every output became
+#: a Zarr store. They are read and ignored, with a warning, so a cache that still declares one keeps
+#: working until it is tidied.
+# TODO: remove this, and the legacy-layout support below, a couple of weeks after every cache has a Zarr store.
+REMOVED_LAYOUT_KEYS = ("split", "split_digits", "split_files", "publish_split", "zarr", "zarr_chunk_bytes")
 
 _HEX_DIGITS = "0123456789abcdef"
 
-#: How many files a split output can be kept as: one per leading hexadecimal digit of its keys, or
-#: one per leading pair of them.
-SPLIT_FILE_COUNTS = (16, 256)
-
-
-def split_prefixes(files: int = 16, /) -> list[str]:
-    """The key prefixes of a split output's files, in order: `0`-`f` for 16, `00`-`ff` for 256."""
-    if files == 16:
-        return list(_HEX_DIGITS)
-    if files == 256:
-        return [first + second for first in _HEX_DIGITS for second in _HEX_DIGITS]
-    raise ValueError(f"A split output is kept as 16 or 256 files, not {files}.")
+# TODO: remove this legacy-layout support a couple of weeks after every cache has moved to Zarr stores.
+#: How many files an output was kept as before it became a store, when it was split by key prefix:
+#: one per leading hexadecimal digit of its keys, per leading pair, or per leading three. They are
+#: still read, once, to move such an output into its store, and when an upstream cache has not yet
+#: moved.
+SPLIT_FILE_COUNTS = (16, 256, 4096)
 
 
 def split_names(name: str, /, files: int = 16) -> list[str]:
-    """The files one split output is kept as, e.g. `<stem>_0.jsonl` to `<stem>_f.jsonl`."""
+    """The files an output was kept as when split, e.g. `<stem>_0.jsonl` to `<stem>_f.jsonl`."""
+    if files not in SPLIT_FILE_COUNTS:
+        raise ValueError(f"An output used to be split into {SPLIT_FILE_COUNTS} files, not {files}.")
+    width = SPLIT_FILE_COUNTS.index(files) + 1
     path = pathlib.PurePosixPath(name)
-    return [f"{path.stem}_{prefix}{path.suffix}" for prefix in split_prefixes(files)]
+    return [f"{path.stem}_{''.join(digits)}{path.suffix}" for digits in itertools.product(_HEX_DIGITS, repeat=width)]
 
 
 # Caches publish their data on a dedicated branch; their default branch holds only code.
@@ -113,26 +121,9 @@ class CacheConfig:
     operations: dict[str, Operation]
     #: The BIDS study description, published with the dataset on both `derivatives` and `dist`.
     description: dict = dataclasses.field(default_factory=dict)
-    #: The outputs kept on `derivatives` as sixteen files rather than one, each still published to
-    #: `dist` as one file. See `GITHUB_FILE_LIMIT_BYTES` for why.
-    split: tuple[str, ...] = ()
-    #: How many files each split output is kept as: 16, by the first digit of each key, or 256, by
-    #: the first two, for an output too large for sixteen files of under 100 MiB.
-    split_files: int = 16
-    #: Whether `dist` publishes the split outputs as their separate compressed files rather than
-    #: joined into one, for an output too large to publish as one file even compressed.
-    publish_split: bool = False
-
-    @property
-    def dist_files(self) -> tuple[str, ...]:
-        """The `.jsonl` names published to `dist`, each compressed: the outputs, or their split files."""
-        names: list[str] = []
-        for output in self.outputs:
-            if output in self.split and self.publish_split:
-                names += split_names(output, self.split_files)
-            else:
-                names.append(output)
-        return tuple(names)
+    #: The size in bytes of each chunk file of an output's Zarr store, which is also the longest record
+    #: it can hold. See `dandi_cache_utils._zarr`.
+    chunk_bytes: int = DEFAULT_CHUNK_BYTES
 
     #: The repository root, when the config was read from a file; used as the default base directory.
     directory: pathlib.Path | None = None
@@ -313,20 +304,21 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
     for output in outputs:
         if not output.endswith(".jsonl"):
             raise ValueError(f"`cache.outputs` entry {output!r} must be a `.jsonl` file name.")
-    split = tuple(cache.get("split", []))
-    split_files = cache.get("split_files", 16)
-    if split_files not in (16, 256):
-        raise ValueError(f"`cache.split_files` must be 16 or 256, got {split_files!r}.")
-    publish_split = bool(cache.get("publish_split", False))
-    if (split_files != 16 or publish_split) and not split:
-        raise ValueError(
-            "`cache.split_files` and `cache.publish_split` describe `cache.split`, which declares nothing."
-        )
-    for output in split:
-        if output not in outputs:
-            raise ValueError(
-                f"`cache.split` entry {output!r} is not one of `cache.outputs`; only an output can be split."
+    for key in REMOVED_LAYOUT_KEYS:
+        if key in cache:
+            warnings.warn(
+                f"`cache.{key}` is ignored: every output is kept as a Zarr store now, so remove it from "
+                f"{CONFIG_FILE_NAME}.",
+                stacklevel=2,
             )
+    chunk_bytes = cache.get("chunk_bytes", DEFAULT_CHUNK_BYTES)
+    if isinstance(chunk_bytes, bool) or not isinstance(chunk_bytes, int) or chunk_bytes < 1_000:
+        raise ValueError(f"`cache.chunk_bytes` must be a whole number of bytes, got {chunk_bytes!r}.")
+    if chunk_bytes > GITHUB_FILE_LIMIT_BYTES:
+        raise ValueError(
+            f"`cache.chunk_bytes` is {chunk_bytes:,}, past GitHub's limit of {GITHUB_FILE_LIMIT_BYTES:,} "
+            "bytes for one file."
+        )
 
     inputs = tuple(_parse_input(entry) for entry in raw.get("inputs", []))
     input_paths = [input_cache.path for input_cache in inputs]
@@ -338,9 +330,7 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
         file_stem=file_stem,
         image=cache.get("image", IMAGE_TEMPLATE.format(organization=ORGANIZATION, name=name)),
         outputs=outputs,
-        split=split,
-        split_files=split_files,
-        publish_split=publish_split,
+        chunk_bytes=chunk_bytes,
         inputs=inputs,
         operations=_parse_operations(_require_mapping(raw.get("operations", {}), where="operations"), cache_name=name),
         description=_parse_description(
@@ -429,7 +419,6 @@ def as_shell(config: CacheConfig, /, *, operation: str = DEFAULT_OPERATION) -> s
         f"CACHE_IMAGE={shlex.quote(config.image)}",
         f"CACHE_URL={shlex.quote(REPOSITORY_URL_TEMPLATE.format(organization=ORGANIZATION, name=config.name))}",
         _shell_array("CACHE_OUTPUTS", config.outputs),
-        _shell_array("CACHE_DIST_FILES", config.dist_files),
         _shell_array("INPUT_PATHS", [input_cache.path for input_cache in config.inputs]),
         _shell_array("INPUT_URLS", [input_cache.url for input_cache in config.inputs]),
         _shell_array("INPUT_BRANCHES", [input_cache.branch for input_cache in config.inputs]),
@@ -447,14 +436,7 @@ def describe(config: CacheConfig, /) -> str:
         f"cache:      {config.name}",
         f"image:      {config.image}",
         f"outputs:    {', '.join(config.outputs)}",
-        *(
-            [
-                f"split:      {', '.join(config.split)} into {config.split_files} files"
-                + (", published separately" if config.publish_split else "")
-            ]
-            if config.split
-            else []
-        ),
+        f"chunks:     {config.chunk_bytes:,} bytes per Zarr chunk",
         f"operations: {', '.join(sorted(config.operations))}",
     ]
     lines.extend(
