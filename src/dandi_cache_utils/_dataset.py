@@ -143,6 +143,7 @@ class CacheDataset:
     def _input_paths(self, name: str | None, /) -> list[pathlib.Path] | None:
         """The split files an upstream keeps its cache as, or `None` when it keeps the single file."""
         file_path = self.input_file_path(name)
+        # TODO: remove this legacy-layout support a couple of weeks after every cache has moved to Zarr stores.
         # An upstream that outgrew one file keeps it split across 16 or 256. Reading those whenever
         # the single file is absent means a downstream cache needs no change, before or after.
         if file_path.exists():
@@ -323,6 +324,7 @@ class CacheDataset:
         store = _zarr.store_path(file_path)
         return store if _zarr.exists(store) else self._legacy_files(file_path)
 
+    # TODO: remove this legacy-layout support a couple of weeks after every cache has moved to Zarr stores.
     def _legacy_files(self, file_path: pathlib.Path, /) -> list[pathlib.Path] | None:
         """The files an output was kept as before it became a store, if any of them exist."""
         for paths in self._legacy_layouts(file_path):
@@ -330,12 +332,14 @@ class CacheDataset:
                 return paths
         return None
 
+    # TODO: remove this legacy-layout support a couple of weeks after every cache has moved to Zarr stores.
     def _legacy_layouts(self, file_path: pathlib.Path, /) -> list[list[pathlib.Path]]:
         """Every way an output used to be kept as files: one file, or split across 16, 256 or 4096."""
         return [[file_path]] + [
             [file_path.with_name(shard) for shard in split_names(file_path.name, files)] for files in SPLIT_FILE_COUNTS
         ]
 
+    # TODO: remove this legacy-layout support a couple of weeks after every cache has moved to Zarr stores.
     def _migrate_to_store(self, file_path: pathlib.Path, /) -> None:
         """Make a store out of the files the output was kept as, when it is not a store yet."""
         store = _zarr.store_path(file_path)
@@ -352,6 +356,7 @@ class CacheDataset:
         _zarr.write_fresh(store, lines, chunk_bytes=self.config.chunk_bytes)
         self._remove_legacy_files(file_path)
 
+    # TODO: remove this legacy-layout support a couple of weeks after every cache has moved to Zarr stores.
     def _remove_legacy_files(self, file_path: pathlib.Path, /) -> None:
         """Remove the files an output used to be kept as, so a moved output leaves one copy."""
         for layout in self._legacy_layouts(file_path):
