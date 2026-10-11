@@ -20,8 +20,10 @@
 - `effective_limit` is gone. `dataset.limit(arguments.limit)` is the one way to resolve a batch cap, and it reads both the operation's `limit` and its `testing_limit` out of `cache.toml` rather than having the caller assemble them.
   Keeping a second entry point that took those as arguments meant two implementations of one rule, and the one nothing called was the one that could drift.
 
+
 ### 🚀 Enhancement
 
+- `dandi-cache validate DIRECTORY... [--with-zarr-python]` checks every Zarr store below the directories (metadata, chunks being whole lines of JSON, padding) and fails if any is malformed. With `--with-zarr-python` it also has `zarr` 3 decode every chunk in a throwaway environment and compares with the files' bytes. The pipeline runs it on `derivatives` before pushing it and on `dist` before publishing, and a `ZarrCompatibility` CI job runs the tests that need `zarr` 3.
 - `run_incremental_update` stops a batch early, and writes what it has, once the process's peak memory passes `memory_limit_mib`, which defaults to three quarters of the memory the machine or its container has (`math.inf` turns it off); `BatchResult.stopped_for_memory` says it happened.
   A batch of `content-id-to-valid-nwb-file` grew to 10 GB inspecting files in one process, stalled, and was killed on a 16 GB runner, and a killed run publishes nothing, so the 2200 results it had checkpointed were lost.
   The usage guide now says what that cache's fix was: open and inspect each file in a child process with `run_isolated`, which returns all of its memory, since HDF5 and pynwb never do.

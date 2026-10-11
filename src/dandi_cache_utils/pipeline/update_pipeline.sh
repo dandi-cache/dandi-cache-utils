@@ -363,6 +363,10 @@ datalad containers-run -n pipeline --explicit \
 # what to do about it.
 dandi_cache check-sizes "${DS}"
 
+# A store that is not what it promises must never reach a branch: check every one, and have
+# zarr-python 3 read each as well.
+dandi_cache validate "${DS}/derivatives" --with-zarr-python --zarr-environment "${RUNNER_TEMP:-/tmp}/zarr-check-venv"
+
 # Publish the full results to the `derivatives` branch.
 push_with_retry "${DS}" derivatives HEAD
 
@@ -393,6 +397,7 @@ cp "${DS}/dataset_description.json" "${DISTDIR}/dataset_description.json"
 
 # The same check for what `dist` is about to publish, compressed.
 dandi_cache check-sizes "${DISTDIR}" --output-name dist-size-warnings
+dandi_cache validate "${DISTDIR}/derivatives" --with-zarr-python --zarr-environment "${RUNNER_TEMP:-/tmp}/zarr-check-venv"
 
 if [ "${PUBLISH_DIST}" = "false" ]; then
   echo "Staged 'dist' in ${DISTDIR} for a later step to publish."

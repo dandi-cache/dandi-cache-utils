@@ -18,7 +18,7 @@ import pathlib
 
 import rich_click
 
-from . import _check, _config, _sizes, _zarr, pipeline
+from . import _check, _config, _sizes, _validate, _zarr, pipeline
 from ._version import __version__
 
 CONFIG_ARGUMENT = rich_click.argument(
@@ -84,6 +84,61 @@ def compress_command(base_directory: pathlib.Path, config_file: pathlib.Path, di
         published += 1
     if not published:
         rich_click.echo(f"No declared outputs found under {base_directory / 'derivatives'}.", err=True)
+
+
+@dandi_cache_cli.command("validate")
+@rich_click.argument(
+    "directories",
+    nargs=-1,
+    required=True,
+    type=rich_click.Path(exists=True, file_okay=False, path_type=pathlib.Path),
+)
+@rich_click.option(
+    "--with-zarr-python",
+    is_flag=True,
+    help="Also have the `zarr` package (version 3) read every store and compare, in a throwaway environment.",
+)
+@rich_click.option(
+    "--zarr-environment",
+    type=rich_click.Path(file_okay=False, path_type=pathlib.Path),
+    default=None,
+    help="Where to build (or reuse) that environment, so several runs share one; by default a temporary one.",
+)
+def validate_command(
+    directories: tuple[pathlib.Path, ...], with_zarr_python: bool, zarr_environment: pathlib.Path | None
+) -> None:
+    """Check that every Zarr store under the DIRECTORIES is well formed, and fail if any is not.
+
+    The pipeline runs this on what it is about to push, so a store that is not what it promises never
+    reaches a branch. The standard-library check covers the metadata, the chunks being whole lines
+    of JSON, and the padding. `--with-zarr-python` also has `zarr` 3 decode every chunk and compare
+    it with the file's bytes, which shows the store is Zarr and not only shaped like it. If that
+    environment cannot be built the cross-check is skipped with a warning; a store `zarr` reads
+    differently is an error.
+    """
+    stores = [store for directory in directories for store in _validate.find_stores(directory)]
+    if not stores:
+        rich_click.echo("No Zarr store found to validate.", err=True)
+        return
+    failures = 0
+    for store in stores:
+        found = _validate.problems_with_store(store)
+        for problem in found:
+            rich_click.echo(f"::error title=Invalid Zarr store::{store}: {problem}")
+        failures += bool(found)
+        if not found:
+            rich_click.echo(f"{store}: well formed ({sum(1 for _ in _zarr.iter_lines(store)):,} lines).")
+    if with_zarr_python and not failures:
+        problems, unavailable = _validate.cross_check_with_zarr_python(stores, environment=zarr_environment)
+        if unavailable:
+            rich_click.echo(f"::warning title=Zarr cross-check skipped::{unavailable}")
+        for problem in problems:
+            rich_click.echo(f"::error title=Zarr reads the store differently::{problem}")
+        failures += len(problems)
+        if not unavailable and not problems:
+            rich_click.echo(f"zarr-python reads all {len(stores)} store(s) as the files' bytes.")
+    if failures:
+        raise SystemExit(1)
 
 
 @dandi_cache_cli.command("check-sizes")

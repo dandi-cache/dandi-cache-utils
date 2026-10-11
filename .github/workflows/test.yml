@@ -49,3 +49,27 @@ jobs:
         # grows an import of boto3, h5py or click, the orchestration breaks before a run starts.
         # Not a lint -- it observes a clean interpreter's `sys.modules`, so it needs the matrix.
         run: .venv/bin/python tests/check_core_imports.py
+
+  ZarrCompatibility:
+    # The stores this library writes must be real Zarr stores. `zarr` 3 reads them, but the NWB stack
+    # pins `zarr<3`, so the main job above cannot install it and skips these tests. This job installs
+    # the package with only `zarr>=3` beside it and runs the tests that need it.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install
+        run: |
+          uv venv --python 3.13 .venv
+          uv pip install --python .venv/bin/python . pytest "zarr>=3" fsspec aiohttp
+
+      - name: Run the Zarr tests
+        # `-rs` lists skips, and the check after fails the job if the tests that need zarr 3 were
+        # skipped anyway, which would mean it has stopped checking anything.
+        run: |
+          .venv/bin/pytest -q -rs tests/test_zarr.py tests/test_validate.py | tee zarr-tests.log
+          if grep -q "Needs zarr 3" zarr-tests.log; then echo "::error::The zarr 3 tests were skipped."; exit 1; fi
