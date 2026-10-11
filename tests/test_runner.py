@@ -621,7 +621,7 @@ def test_a_split_upstream_is_read_as_one_input(tmp_path, format, expected):
 @pytest.mark.ai_generated
 def test_an_output_split_into_256_files_goes_by_the_first_two_digits(tmp_path):
     cache_config = dandi_cache.parse_config(
-        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": 256}},
+        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_digits": 2}},
         directory=tmp_path,
     )
     dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
@@ -642,7 +642,8 @@ def test_an_output_split_into_256_files_goes_by_the_first_two_digits(tmp_path):
 def test_widening_a_split_migrates_the_sixteen_files_and_removes_them(tmp_path):
     def open_with(files: int) -> CacheDataset:
         config = dandi_cache.parse_config(
-            {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": files}}, directory=tmp_path
+            {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_digits": _DIGITS[files]}},
+            directory=tmp_path,
         )
         return CacheDataset(config=config, base_directory=tmp_path)
 
@@ -657,9 +658,12 @@ def test_widening_a_split_migrates_the_sixteen_files_and_removes_them(tmp_path):
     assert dandi_cache.read_lookup(derivatives / "my_cache_f1.jsonl") == {"f1": 2}
 
 
+_DIGITS = {16: 1, 256: 2, 4096: 3}
+
+
 def _open_split(tmp_path, files: int) -> CacheDataset:
     config = dandi_cache.parse_config(
-        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": files}}, directory=tmp_path
+        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_digits": _DIGITS[files]}}, directory=tmp_path
     )
     return CacheDataset(config=config, base_directory=tmp_path)
 
@@ -682,7 +686,7 @@ def test_an_output_split_into_4096_files_goes_by_the_first_three_digits(tmp_path
 
 @pytest.mark.ai_generated
 @pytest.mark.parametrize(("before", "after"), [(16, 4096), (256, 4096), (4096, 256), (4096, 16), (16, 256), (256, 16)])
-def test_changing_split_files_repacks_the_existing_files_before_merging(tmp_path, before, after, monkeypatch):
+def test_changing_split_digits_repacks_the_existing_files_before_merging(tmp_path, before, after, monkeypatch):
     first = _open_split(tmp_path, before)
     existing = {f"{prefix}-{index}": index for index, prefix in enumerate(["0a1", "0a9", "ff3", "123", "9bc"])}
     first.write_output_lookup(existing, "my_cache.jsonl")
@@ -732,10 +736,33 @@ def test_an_upstream_split_into_256_files_is_read_as_one_input(tmp_path):
 def test_split_settings_need_a_split_to_describe(tmp_path):
     with pytest.raises(ValueError, match="describe `cache.split`"):
         dandi_cache.parse_config({"cache": {"name": "my-cache", "publish_split": True}}, directory=tmp_path)
-    with pytest.raises(ValueError, match="16, 256 or 4096"):
+    with pytest.raises(ValueError, match="1, 2 or 3"):
         dandi_cache.parse_config(
-            {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": 64}}, directory=tmp_path
+            {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_digits": 4}}, directory=tmp_path
         )
+
+
+@pytest.mark.ai_generated
+@pytest.mark.parametrize(("digits", "files"), [(1, 16), (2, 256), (3, 4096)])
+def test_split_digits_choose_the_number_of_files(tmp_path, digits, files):
+    config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_digits": digits}}, directory=tmp_path
+    )
+
+    assert config.split_files == files
+
+
+@pytest.mark.ai_generated
+def test_the_older_split_files_spelling_still_works_but_not_beside_split_digits(tmp_path):
+    cache = {"name": "my-cache", "split": ["my_cache.jsonl"]}
+
+    older = dandi_cache.parse_config({"cache": {**cache, "split_files": 256}}, directory=tmp_path)
+
+    assert older.split_files == 256
+    with pytest.raises(ValueError, match="16, 256 or 4096"):
+        dandi_cache.parse_config({"cache": {**cache, "split_files": 64}}, directory=tmp_path)
+    with pytest.raises(ValueError, match="declare only `split_digits`"):
+        dandi_cache.parse_config({"cache": {**cache, "split_files": 256, "split_digits": 2}}, directory=tmp_path)
 
 
 @pytest.mark.ai_generated
@@ -746,7 +773,7 @@ def test_a_published_split_lists_each_file_for_dist(tmp_path):
                 "name": "my-cache",
                 "outputs": ["my_cache.jsonl", "other.jsonl"],
                 "split": ["my_cache.jsonl"],
-                "split_files": 256,
+                "split_digits": 2,
                 "publish_split": True,
             }
         },

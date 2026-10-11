@@ -26,9 +26,9 @@
   `split_files = 256` keeps each split output as 256 files, by the first two digits of each key, rather than 16. `publish_split = true` publishes those files to `dist` one by one, compressed, rather than joined into one file, for an output too large for GitHub's limit even compressed.
   A split output is read from whichever layout it was last kept as, so changing either setting migrates on the next run.
   `read_input` reads an upstream kept as 256 files the same way it reads one kept as 16.
-- `split_files` takes `4096` as well, keeping each split output as 4096 files by the first three digits of each key, for an output whose files outgrow GitHub's limit even at 256.
+- `split_digits` in `cache.toml` says how many leading hexadecimal digits of a key choose its file: `1` (the default) keeps each split output as 16 files, `2` as 256, and the new `3` as 4096, for an output whose files outgrow GitHub's limit even at 256. `split_files = 16`, `256` or `4096` still works as the older spelling, and the two cannot be declared together.
   `valid-nwb-file-to-array-sizes` hit it: its 256 files were 22 MB on average at 58% of the archive, but a few keys are ten times that, and one reached 99 MB.
-  Changing `split_files` in either direction repacks what is already on `derivatives` on the next `merge_output_lookup`, one group of files that share their leading digits at a time, so a cache too large for memory migrates without ever reading its whole output.
+  Changing `split_digits` in either direction repacks what is already on `derivatives` on the next `merge_output_lookup`, one group of files that share their leading digits at a time, so a cache too large for memory migrates without ever reading its whole output.
   The layout is the cache's own setting, so a cache that does not need more files keeps the default and needs no change.
 - `run_isolated` takes `start_method`, and `"spawn"` is the one to use beside `workers`: a child forked while other threads run inherits their locks, still held.
 - `run_incremental_update` takes `workers`, to process that many items at once, in threads, for an operation that waits on the network or on a child process.

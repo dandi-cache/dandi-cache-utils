@@ -130,6 +130,7 @@ class CacheConfig:
     split: tuple[str, ...] = ()
     #: How many files each split output is kept as: 16, by the first digit of each key, 256, by the
     #: first two, or 4096, by the first three, for an output too large for fewer files of under 100 MiB.
+    #: Declared as `cache.split_digits`, the number of leading digits, so this is `16 ** split_digits`.
     split_files: int = 16
     #: Whether `dist` publishes the split outputs as their separate compressed files rather than
     #: joined into one, for an output too large to publish as one file even compressed.
@@ -308,6 +309,25 @@ def dataset_description(config: "CacheConfig", /, *, version: str | None = None)
     return {**config.description, "GeneratedBy": [generated_by]}
 
 
+def _split_files(cache: dict, /) -> int:
+    """How many files a split output is kept as, from `cache.split_digits` or its older spelling `cache.split_files`."""
+    digits, files = cache.get("split_digits"), cache.get("split_files")
+    if digits is not None and files is not None:
+        raise ValueError(
+            "`cache.split_digits` and `cache.split_files` say the same thing; declare only `split_digits`."
+        )
+    if digits is not None:
+        if isinstance(digits, bool) or digits not in range(1, len(SPLIT_FILE_COUNTS) + 1):
+            raise ValueError(f"`cache.split_digits` must be 1, 2 or {len(SPLIT_FILE_COUNTS)}, got {digits!r}.")
+        return 16**digits
+    if files is None:
+        return 16
+    if files not in SPLIT_FILE_COUNTS:
+        counts = ", ".join(str(count) for count in SPLIT_FILE_COUNTS[:-1]) + f" or {SPLIT_FILE_COUNTS[-1]}"
+        raise ValueError(f"`cache.split_files` must be {counts}, got {files!r}; prefer `cache.split_digits`.")
+    return files
+
+
 def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> CacheConfig:
     """Build a `CacheConfig` from an already-parsed `cache.toml` mapping."""
     cache = _require_mapping(raw.get("cache", {}), where="cache")
@@ -326,14 +346,11 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
         if not output.endswith(".jsonl"):
             raise ValueError(f"`cache.outputs` entry {output!r} must be a `.jsonl` file name.")
     split = tuple(cache.get("split", []))
-    split_files = cache.get("split_files", 16)
-    if split_files not in SPLIT_FILE_COUNTS:
-        counts = ", ".join(str(count) for count in SPLIT_FILE_COUNTS[:-1]) + f" or {SPLIT_FILE_COUNTS[-1]}"
-        raise ValueError(f"`cache.split_files` must be {counts}, got {split_files!r}.")
+    split_files = _split_files(cache)
     publish_split = bool(cache.get("publish_split", False))
     if (split_files != 16 or publish_split) and not split:
         raise ValueError(
-            "`cache.split_files` and `cache.publish_split` describe `cache.split`, which declares nothing."
+            "`cache.split_digits` and `cache.publish_split` describe `cache.split`, which declares nothing."
         )
     for output in split:
         if output not in outputs:
