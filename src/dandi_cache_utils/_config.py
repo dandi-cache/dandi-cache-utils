@@ -41,7 +41,7 @@ DEFAULT_CHUNK_BYTES = 80_000_000
 #: The `cache.toml` keys of the layouts there used to be a choice between, before every output became
 #: a Zarr store. They are read and ignored, with a warning, so a cache that still declares one keeps
 #: working until it is tidied.
-# TODO: remove this legacy-layout support a couple of weeks after every cache has moved to Zarr stores. (the ignored keys below too)
+# TODO: remove this, and the legacy-layout support below, a couple of weeks after every cache has a Zarr store.
 REMOVED_LAYOUT_KEYS = ("split", "split_digits", "split_files", "publish_split", "zarr", "zarr_chunk_bytes")
 
 _HEX_DIGITS = "0123456789abcdef"
