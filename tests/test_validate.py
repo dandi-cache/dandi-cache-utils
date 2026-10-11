@@ -105,3 +105,14 @@ def test_zarr_python_reads_the_store_as_the_files_bytes(tmp_path, compressed):
     result = subprocess.run([sys.executable, "-I", str(script), str(store)], capture_output=True, text=True)
     assert result.returncode == 1
     assert "zarr" in result.stdout
+
+
+@pytest.mark.ai_generated
+def test_the_command_fails_when_the_zarr_cross_check_cannot_run(tmp_path, monkeypatch):
+    make_store(tmp_path / "derivatives")
+    monkeypatch.setattr(_validate, "cross_check_with_zarr_python", lambda stores, environment=None: ([], "no uv"))
+
+    result = CliRunner().invoke(_cli.dandi_cache_cli, ["validate", str(tmp_path), "--with-zarr-python"])
+
+    assert result.exit_code == 1
+    assert "::error title=Zarr cross-check could not run::no uv" in result.output

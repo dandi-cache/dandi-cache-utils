@@ -112,9 +112,9 @@ def validate_command(
     The pipeline runs this on what it is about to push, so a store that is not what it promises never
     reaches a branch. The standard-library check covers the metadata, the chunks being whole lines
     of JSON, and the padding. `--with-zarr-python` also has `zarr` 3 decode every chunk and compare
-    it with the file's bytes, which shows the store is Zarr and not only shaped like it. If that
-    environment cannot be built the cross-check is skipped with a warning; a store `zarr` reads
-    differently is an error.
+    it with the file's bytes, which shows the store is Zarr and not only shaped like it. A store
+    `zarr` reads differently is an error, and so is not being able to build that environment: a
+    check that may silently not run is no guarantee.
     """
     stores = [store for directory in directories for store in _validate.find_stores(directory)]
     if not stores:
@@ -131,7 +131,8 @@ def validate_command(
     if with_zarr_python and not failures:
         problems, unavailable = _validate.cross_check_with_zarr_python(stores, environment=zarr_environment)
         if unavailable:
-            rich_click.echo(f"::warning title=Zarr cross-check skipped::{unavailable}")
+            rich_click.echo(f"::error title=Zarr cross-check could not run::{unavailable}")
+            failures += 1
         for problem in problems:
             rich_click.echo(f"::error title=Zarr reads the store differently::{problem}")
         failures += len(problems)
