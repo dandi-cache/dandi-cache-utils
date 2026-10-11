@@ -12,6 +12,7 @@ adding a third-party import here would break the orchestration.
 """
 
 import dataclasses
+import itertools
 import os
 import pathlib
 import shlex
@@ -35,18 +36,29 @@ GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024
 
 _HEX_DIGITS = "0123456789abcdef"
 
-#: How many files a split output can be kept as: one per leading hexadecimal digit of its keys, or
-#: one per leading pair of them.
-SPLIT_FILE_COUNTS = (16, 256)
+#: How many files a split output can be kept as: one per leading hexadecimal digit of its keys, one
+#: per leading pair of them, or one per leading three. Each is sixteen times the one before, so a
+#: change from one to another only ever moves a key between a file and the files that share its
+#: leading digits, which is what lets `CacheDataset` repack one such group at a time.
+SPLIT_FILE_COUNTS = (16, 256, 4096)
+
+
+def split_width(files: int = 16, /) -> int:
+    """How many leading hexadecimal digits of a key choose its file, for a split into `files`."""
+    if files not in SPLIT_FILE_COUNTS:
+        counts = ", ".join(str(count) for count in SPLIT_FILE_COUNTS[:-1]) + f" or {SPLIT_FILE_COUNTS[-1]}"
+        raise ValueError(f"A split output is kept as {counts} files, not {files}.")
+    return SPLIT_FILE_COUNTS.index(files) + 1
+
+
+def prefixes_of_width(width: int, /) -> list[str]:
+    """Every key prefix of `width` hexadecimal digits, in order."""
+    return ["".join(digits) for digits in itertools.product(_HEX_DIGITS, repeat=width)]
 
 
 def split_prefixes(files: int = 16, /) -> list[str]:
-    """The key prefixes of a split output's files, in order: `0`-`f` for 16, `00`-`ff` for 256."""
-    if files == 16:
-        return list(_HEX_DIGITS)
-    if files == 256:
-        return [first + second for first in _HEX_DIGITS for second in _HEX_DIGITS]
-    raise ValueError(f"A split output is kept as 16 or 256 files, not {files}.")
+    """The key prefixes of a split output's files, in order: `0`-`f` for 16, `00`-`ff` for 256, `000`-`fff` for 4096."""
+    return prefixes_of_width(split_width(files))
 
 
 def split_names(name: str, /, files: int = 16) -> list[str]:
@@ -116,8 +128,8 @@ class CacheConfig:
     #: The outputs kept on `derivatives` as sixteen files rather than one, each still published to
     #: `dist` as one file. See `GITHUB_FILE_LIMIT_BYTES` for why.
     split: tuple[str, ...] = ()
-    #: How many files each split output is kept as: 16, by the first digit of each key, or 256, by
-    #: the first two, for an output too large for sixteen files of under 100 MiB.
+    #: How many files each split output is kept as: 16, by the first digit of each key, 256, by the
+    #: first two, or 4096, by the first three, for an output too large for fewer files of under 100 MiB.
     split_files: int = 16
     #: Whether `dist` publishes the split outputs as their separate compressed files rather than
     #: joined into one, for an output too large to publish as one file even compressed.
@@ -186,7 +198,7 @@ def _parse_input(raw: dict, /) -> InputCache:
         url=raw.get("url", REPOSITORY_URL_TEMPLATE.format(organization=ORGANIZATION, name=name)),
         path=raw.get("path", f"sourcedata/{name}"),
         branch=raw.get("branch", DEFAULT_INPUT_BRANCH),
-        file_name=raw.get("file", f'{name.replace("-", "_")}.jsonl'),
+        file_name=raw.get("file", f"{name.replace('-', '_')}.jsonl"),
         format=input_format,
     )
 
@@ -315,8 +327,9 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
             raise ValueError(f"`cache.outputs` entry {output!r} must be a `.jsonl` file name.")
     split = tuple(cache.get("split", []))
     split_files = cache.get("split_files", 16)
-    if split_files not in (16, 256):
-        raise ValueError(f"`cache.split_files` must be 16 or 256, got {split_files!r}.")
+    if split_files not in SPLIT_FILE_COUNTS:
+        counts = ", ".join(str(count) for count in SPLIT_FILE_COUNTS[:-1]) + f" or {SPLIT_FILE_COUNTS[-1]}"
+        raise ValueError(f"`cache.split_files` must be {counts}, got {split_files!r}.")
     publish_split = bool(cache.get("publish_split", False))
     if (split_files != 16 or publish_split) and not split:
         raise ValueError(

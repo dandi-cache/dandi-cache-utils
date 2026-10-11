@@ -21,8 +21,10 @@ from ._config import (
     CacheConfig,
     InputCache,
     load_config,
+    prefixes_of_width,
     split_names,
     split_prefixes,
+    split_width,
 )
 from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
@@ -184,6 +186,8 @@ class CacheDataset:
             )
         shard_paths = self._shard_paths(file_path)
         if not all(shard_path.exists() for shard_path in shard_paths):
+            self._repack_split_layout(file_path)
+        if not all(shard_path.exists() for shard_path in shard_paths):
             combined = self.read_output_lookup(name)
             combined.update(records)
             return self.write_output_lookup(combined, name)
@@ -250,7 +254,7 @@ class CacheDataset:
         return [file_path.with_name(shard) for shard in self.split_output_names(file_path.name)]
 
     def _shard_of(self, key, file_path: pathlib.Path, /) -> str:
-        width = 1 if self.config.split_files == 16 else 2
+        width = split_width(self.config.split_files)
         prefix = str(key)[:width].lower()
         if len(prefix) != width or any(character not in SPLIT_PREFIXES for character in prefix):
             raise ValueError(
@@ -277,6 +281,46 @@ class CacheDataset:
         ]
         declared = self._shard_paths(file_path) if self._is_split(file_path) else [file_path]
         return [declared] + [layout for layout in layouts if layout != declared]
+
+    def _repack_split_layout(self, file_path: pathlib.Path, /) -> None:
+        """Move an output kept as one number of split files into the declared number, a group at a time.
+
+        Going from 256 files to 4096, or back, only ever moves a key between one file and the files
+        that share its leading digits. So the output is repacked one such group after another, and
+        a run holds a single group of it, never the whole: that is what lets `split_files` be
+        changed for an output too large for memory, and the next run's merge then finds every
+        declared file in place. An output kept as a single file, or not yet present, is left to the
+        caller, which reads it whole.
+        """
+        declared_width = split_width(self.config.split_files)
+        for files in SPLIT_FILE_COUNTS:
+            width = split_width(files)
+            if width == declared_width:
+                continue
+            old_paths = {
+                prefix: file_path.with_name(name)
+                for prefix, name in zip(prefixes_of_width(width), split_names(file_path.name, files), strict=True)
+            }
+            if not any(path.exists() for path in old_paths.values()):
+                continue
+            group_width = min(width, declared_width)
+            new_names = dict(
+                zip(split_prefixes(self.config.split_files), self.split_output_names(file_path.name), strict=True)
+            )
+            for group in prefixes_of_width(group_width):
+                shards = [(prefix, path) for prefix, path in old_paths.items() if prefix.startswith(group)]
+                combined: dict = {}
+                for _, path in shards:
+                    if path.exists():
+                        combined.update(_jsonl.read_lookup(path))
+                new_records: dict[str, dict] = {prefix: {} for prefix in new_names if prefix.startswith(group)}
+                for key, value in combined.items():
+                    new_records[self._shard_of(key, file_path)][key] = value
+                for prefix, records in new_records.items():
+                    _jsonl.write_lookup(file_path.with_name(new_names[prefix]), records)
+                for _, path in shards:
+                    path.unlink(missing_ok=True)
+            return
 
     def _remove_other_layout(self, file_path: pathlib.Path, /) -> None:
         """Remove what the output was kept as before, so a change of layout leaves one copy."""

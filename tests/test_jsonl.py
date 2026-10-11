@@ -6,6 +6,7 @@ import json
 import pytest
 
 import dandi_cache_utils as dandi_cache
+from dandi_cache_utils._config import split_prefixes
 
 
 @pytest.mark.ai_generated
@@ -178,3 +179,17 @@ def test_an_output_kept_as_256_files_is_joined_by_default(tmp_path):
 
     assert [path.name for path in compressed] == ["cache.jsonl.gz"]
     assert gzip.decompress((derivatives / "cache.jsonl.gz").read_bytes()) == b'{"ff1": 1}\n'
+
+
+@pytest.mark.ai_generated
+def test_an_output_kept_as_4096_files_is_joined_by_default(tmp_path):
+    derivatives = tmp_path / "derivatives"
+    derivatives.mkdir()
+    for prefix in split_prefixes(4096):
+        (derivatives / f"cache_{prefix}.jsonl").write_text("")
+    (derivatives / "cache_ff3.jsonl").write_text('{"ff31": 1}\n')
+
+    compressed = dandi_cache.compress_derivatives(tmp_path)
+
+    assert [path.name for path in compressed] == ["cache.jsonl.gz"]
+    assert gzip.decompress((derivatives / "cache.jsonl.gz").read_bytes()) == b'{"ff31": 1}\n'

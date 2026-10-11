@@ -149,7 +149,7 @@ def test_the_check_is_read_from_the_signature_rather_than_a_list_of_removals(tmp
     ever catches what someone remembered to add to it, and goes stale the moment it is not
     updated. Reading `inspect.signature` cannot go stale.
     """
-    source = "import dandi_cache_utils as dandi_cache\n\n" "dandi_cache.s3.anonymous_client(max_pool_connectons=16)\n"
+    source = "import dandi_cache_utils as dandi_cache\n\ndandi_cache.s3.anonymous_client(max_pool_connectons=16)\n"
     config = write_cache(tmp_path, source)
 
     (problem,) = _check.check_operations(config, library=library)

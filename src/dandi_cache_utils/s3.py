@@ -180,8 +180,7 @@ def dandiset_assets(client, key_or_id: str, /, *, version: str = "draft") -> lis
         return None
     if not isinstance(assets, list):
         message = (
-            f"The manifest `{key}` is not a JSON array of assets. "
-            "The DANDI archive's manifest layout may have changed."
+            f"The manifest `{key}` is not a JSON array of assets. The DANDI archive's manifest layout may have changed."
         )
         raise ValueError(message)
     return assets

@@ -657,6 +657,63 @@ def test_widening_a_split_migrates_the_sixteen_files_and_removes_them(tmp_path):
     assert dandi_cache.read_lookup(derivatives / "my_cache_f1.jsonl") == {"f1": 2}
 
 
+def _open_split(tmp_path, files: int) -> CacheDataset:
+    config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": files}}, directory=tmp_path
+    )
+    return CacheDataset(config=config, base_directory=tmp_path)
+
+
+@pytest.mark.ai_generated
+def test_an_output_split_into_4096_files_goes_by_the_first_three_digits(tmp_path):
+    dataset = _open_split(tmp_path, 4096)
+    records = {"0a1-x": 1, "FF3-y": 3}
+
+    dataset.write_output_lookup(records, "my_cache.jsonl")
+
+    derivatives = tmp_path / "derivatives"
+    assert len(list(derivatives.glob("my_cache_???.jsonl"))) == 4096
+    assert dandi_cache.read_lookup(derivatives / "my_cache_0a1.jsonl") == {"0a1-x": 1}
+    assert dandi_cache.read_lookup(derivatives / "my_cache_ff3.jsonl") == {"FF3-y": 3}
+    assert dataset.read_output_lookup("my_cache.jsonl") == records
+    with pytest.raises(ValueError, match="3 hexadecimal"):
+        dataset.write_output_lookup({"0a": 1}, "my_cache.jsonl")
+
+
+@pytest.mark.ai_generated
+@pytest.mark.parametrize(("before", "after"), [(16, 4096), (256, 4096), (4096, 256), (4096, 16), (16, 256), (256, 16)])
+def test_changing_split_files_repacks_the_existing_files_before_merging(tmp_path, before, after, monkeypatch):
+    first = _open_split(tmp_path, before)
+    existing = {f"{prefix}-{index}": index for index, prefix in enumerate(["0a1", "0a9", "ff3", "123", "9bc"])}
+    first.write_output_lookup(existing, "my_cache.jsonl")
+    second = _open_split(tmp_path, after)
+    # The repack moves files group by group, so it must not read the whole output at once.
+    monkeypatch.setattr(
+        CacheDataset, "read_output_lookup", lambda *args, **kwargs: pytest.fail("read the whole output")
+    )
+
+    second.merge_output_lookup({"0a1-new": 100, "ff3-0": 200}, "my_cache.jsonl")
+
+    expected = {**existing, "0a1-new": 100, "ff3-0": 200}
+    assert dict(second.iter_output("my_cache.jsonl")) == expected
+    names = sorted(path.name for path in (tmp_path / "derivatives").glob("my_cache_*.jsonl"))
+    assert names == sorted(second.split_output_names("my_cache.jsonl"))
+
+
+@pytest.mark.ai_generated
+def test_an_upstream_split_into_4096_files_is_read_as_one_input(tmp_path):
+    cache_config = dandi_cache.parse_config(
+        {"cache": {"name": "my-cache"}, "inputs": [{"name": "up-stream"}]}, directory=tmp_path
+    )
+    dataset = CacheDataset(config=cache_config, base_directory=tmp_path)
+    single = dataset.input_file_path()
+    single.parent.mkdir(parents=True)
+    dandi_cache.write_lookup(single.with_name("up_stream_0a1.jsonl"), {"0a1-x": 1})
+    dandi_cache.write_lookup(single.with_name("up_stream_ff2.jsonl"), {"ff2-y": 2})
+
+    assert dataset.read_input() == {"0a1-x": 1, "ff2-y": 2}
+
+
 @pytest.mark.ai_generated
 def test_an_upstream_split_into_256_files_is_read_as_one_input(tmp_path):
     cache_config = dandi_cache.parse_config(
@@ -675,7 +732,7 @@ def test_an_upstream_split_into_256_files_is_read_as_one_input(tmp_path):
 def test_split_settings_need_a_split_to_describe(tmp_path):
     with pytest.raises(ValueError, match="describe `cache.split`"):
         dandi_cache.parse_config({"cache": {"name": "my-cache", "publish_split": True}}, directory=tmp_path)
-    with pytest.raises(ValueError, match="16 or 256"):
+    with pytest.raises(ValueError, match="16, 256 or 4096"):
         dandi_cache.parse_config(
             {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_files": 64}}, directory=tmp_path
         )
