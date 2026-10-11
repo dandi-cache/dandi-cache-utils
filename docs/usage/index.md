@@ -33,61 +33,30 @@ The file stem, the image reference, the output file name, and each input's URL, 
 | `name` | *required* | The hyphenated repository name. |
 | `file_stem` | the underscored `name` | The stem of the default output file. |
 | `image` | `ghcr.io/dandi-cache/<name>` | This cache's runtime image. |
-| `outputs` | `["<file_stem>.jsonl"]` | Every file published to `dist`. Declaring them is what keeps a `testing_` artifact from reaching consumers. |
-| `split` | `[]` | The outputs kept on `derivatives` as sixteen files rather than one. See below. |
-| `split_digits` | `1` | How many leading hexadecimal digits of a key choose its file, so how many files each split output is kept as: 1 for 16 files, 2 for 256, 3 for 4096. (`split_files = 16`, `256` or `4096` is the older spelling of the same thing.) |
-| `publish_split` | `false` | Publish the split outputs to `dist` as their separate compressed files rather than joined into one. |
-| `zarr` | `[]` | The outputs kept on `derivatives` as one Zarr store that only grows by appending, instead of one file or split files. See below. |
-| `zarr_chunk_bytes` | `80000000` | The size of each chunk file of a Zarr store, which is also the longest record it can hold. |
+| `outputs` | `["<file_stem>.jsonl"]` | Every output published to `dist`, by the `.jsonl` name the cache's code addresses it by; each is kept as the Zarr store `<name>.zarr`. Declaring them is what keeps a `testing_` artifact from reaching consumers. |
+| `chunk_bytes` | `80000000` | The size of each chunk file of an output's Zarr store, which is also the longest record it can hold. See below. |
 
-#### Outputs near GitHub's file limit
+#### How outputs are stored
 
-GitHub refuses a push carrying any file over 100 MiB, and the pipeline pushes `derivatives` only once a run's work is done, so an output that outgrows the limit costs every run all of its work.
-Two things guard against it.
+Every output is kept on `derivatives` as a [Zarr](https://zarr.dev/) store, `<stem>.zarr`, that only ever grows by appending.
+GitHub refuses a push carrying any file over 100 MiB, and the pipeline pushes `derivatives` only once a run's work is done, so one file that outgrew the limit used to cost every run all of its work. A store has no such file, since it is cut into chunks of `chunk_bytes` each.
 
-- **A size check before every push.** The pipeline runs `dandi-cache check-sizes` on what it is about to push to `derivatives`, and again on what `dist` is about to publish.
-  A file past 80% of the limit is a warning: an annotation on the run, a line in its summary, and a `size-warnings` (or `dist-size-warnings`) step output that `dandi-cache-action` sends an email for, while the run still succeeds.
-  A file past the limit stops the run before the push, naming the file and what to do.
-- **`split`.** An output listed there is kept on `derivatives` as `<stem>_0.jsonl` to `<stem>_f.jsonl`, by the first hexadecimal digit of each key, so only a cache keyed by content ID can split.
-  Nothing in `code/update.py` changes: `read_output_lookup`, `write_output_lookup` and `write_output_records` read and write the sixteen files for a split output, and the first run after declaring it reads the single file and removes it.
-  `dist` still publishes it as the one `<stem>.jsonl.gz` it always did, the sixteen joined in order, so no consumer URL changes; compressed, it is a fraction of the size.
-  A downstream cache needs no change either: `read_input` reads an upstream's sixteen files whenever its single file is absent.
-
-An output too large for sixteen files of under 100 MiB sets `split_digits = 2`, or `3` for one still larger, and one too large to publish as one file even compressed sets `publish_split = true`, which puts its files on `dist` one by one.
-Changing either is a one-line change in the cache's own `cache.toml`, and the next run repacks the files already on `derivatives` into the new layout, one group of files at a time, so it holds a few files' records rather than the whole output.
-A cache keeps the default until it needs more, and nothing in the library has to be released for it to change: the layout belongs to the cache.
-
-```toml
-[cache]
-name = "content-id-to-dandiset-paths"
-outputs = ["content_id_to_dandiset_paths.jsonl", "asset_manifest_checked_at.jsonl"]
-# Within days of GitHub's 100 MiB limit as one file.
-split = ["content_id_to_dandiset_paths.jsonl"]
-```
-
-#### Outputs that only grow: the Zarr store
-
-For an output that a cache extends run after run, `zarr` is the alternative to `split`: no width to choose, bump, or repack.
-An output listed there is kept on `derivatives` as `<stem>.zarr`, one 1-D `uint8` array whose bytes are the JSON Lines text, in chunk files of `zarr_chunk_bytes` each.
-
-- **It is plain text, and a record is never cut in two.** There is no compression codec, so each chunk file `stream/c/0`, `stream/c/1`, ... is UTF-8 text that git diffs and GitHub shows.
+- **It is plain text, and a record is never cut in two.** The store is one 1-D `uint8` array, `stream`, of the JSON Lines text, with no compression codec, so each chunk file `stream/c/0`, `stream/c/1`, ... is UTF-8 text that git diffs and GitHub shows.
   A record that does not fit in what is left of the current chunk pads it with newlines and starts the next, so every chunk is a self-contained set of whole lines, and the unfilled end of the last chunk is blank lines, never NUL bytes.
+  A record can be at most one chunk long.
 - **A run only appends.** Only the last chunk and any new ones change, so the history of `derivatives` grows by what was added.
   An entry replaced by a later run is a new line, and the last line for a key is the current one.
   Once at least a fifth of the lines (and a thousand) are superseded, the end of `run_incremental_update` compacts the store, which rewrites it without them; `dataset.compact_output()` does so on demand.
-- **Nothing in `code/update.py` changes.** `read_output_lookup`, `iter_output`, `merge_output_lookup` and `write_output_lookup` work on a store as they do on files, with `iter_output` yielding the current entries only, and `run_incremental_update` appends each checkpoint's results whether or not it holds the cache in memory.
-  A store replaces whatever the output was kept as before: the first run after declaring it moves a single file or split files into it, and dropping the declaration moves it back.
-  `read_input` and `iter_input` read an upstream kept as a store.
-- **`dist` publishes a compacted copy.** `derivatives/<stem>.zarr/` with every chunk gzip-compressed, which is the Zarr `gzip` codec, so it opens as a Zarr store anywhere; and, when it fits under GitHub's limit, the usual `derivatives/<stem>.jsonl.gz` beside it.
+- **Nothing in `code/update.py` is about it.** `read_output_lookup`, `iter_output`, `merge_output_lookup`, `write_output_lookup`, `write_output_records`, `read_output_ids` and `write_output_ids` read and write a store, with `iter_output` yielding the current entries only, and `run_incremental_update` appends each checkpoint's results whether or not it holds the cache in memory.
+  `read_input` and `iter_input` read an upstream's store, or the file or split files an upstream kept it as before it had one.
+- **Moving in is automatic.** An output that an older version kept as one JSONL file, or split across 16, 256 or 4096 files by key prefix, is read as it is and moved into its store by the first write, which removes the files.
+  The old `cache.toml` keys `split`, `split_digits`, `split_files`, `publish_split`, `zarr` and `zarr_chunk_bytes` are ignored with a warning, and can be removed.
+- **`dist` publishes a compacted copy of each store**, `derivatives/<stem>.zarr/`, with every chunk gzip-compressed: the Zarr `gzip` codec, so it opens as a Zarr store anywhere, over HTTP too, and each chunk is also a gzip file of whole JSONL lines, so a consumer with no Zarr library can fetch the chunks in order and decompress them.
   The metadata is consolidated into the group's `zarr.json`, so opening a store over HTTP takes one request for its layout.
 - **The library needs no Zarr package.** The store is written and read with the standard library; the `zarr` package is only for a consumer that wants it.
-
-```toml
-[cache]
-name = "valid-nwb-file-to-array-sizes"
-# Grows by about 82 MB of JSON a run, and past GitHub's limit for one file within days.
-zarr = ["valid_nwb_file_to_array_sizes.jsonl"]
-```
+- **A size check before every push.** The pipeline runs `dandi-cache check-sizes` on what it is about to push to `derivatives`, and again on what `dist` is about to publish.
+  A file past 80% of the limit is a warning: an annotation on the run, a line in its summary, and a `size-warnings` (or `dist-size-warnings`) step output that `dandi-cache-action` sends an email for, while the run still succeeds.
+  A file past the limit stops the run before the push, naming the file and what to do.
 
 ### `[[inputs]]`
 
@@ -376,7 +345,7 @@ It is rarely run by hand, but it is how a cache's configuration can be inspected
 dandi-cache config show cache.toml          # what the declaration resolves to
 dandi-cache config shell cache.toml         # the same, as bash assignments
 dandi-cache dataset-description cache.toml  # the BIDS metadata, rendered
-dandi-cache compress                        # gzip derivatives/*.jsonl reproducibly
+dandi-cache compress --config cache.toml --dist-directory dist   # publish each output's store, compressed
 dandi-cache check-sizes .                   # files near GitHub's 100 MiB limit
 ```
 

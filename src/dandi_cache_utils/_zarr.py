@@ -33,7 +33,7 @@ import pathlib
 import shutil
 import typing
 
-from ._config import DEFAULT_ZARR_CHUNK_BYTES
+from ._config import DEFAULT_CHUNK_BYTES as DEFAULT_ZARR_CHUNK_BYTES
 
 #: The chunk size, in bytes, of a store that does not say otherwise. It leaves a chunk well under the
 #: point at which `check-sizes` starts warning about GitHub's 100 MiB limit for one file.
@@ -121,7 +121,7 @@ def _aligned_payload(lines: typing.Iterable[str], position: int, chunk_bytes: in
         if len(record) > chunk_bytes:
             raise ValueError(
                 f"A record of {len(record):,} bytes does not fit in a chunk of {chunk_bytes:,}; "
-                "raise `zarr_chunk_bytes` in `cache.toml`, within GitHub's 100 MiB limit for one file."
+                "raise `chunk_bytes` in `cache.toml`, within GitHub's 100 MiB limit for one file."
             )
         used = (position + len(payload)) % chunk_bytes
         if used and len(record) > chunk_bytes - used:
@@ -291,32 +291,17 @@ def compact(store: pathlib.Path, /) -> None:
     write_fresh(store, iter_latest_lines(store), chunk_bytes=chunk_bytes)
 
 
-def publish(
-    store: pathlib.Path, destination: pathlib.Path, /, *, joined_limit_bytes: int | None = None
-) -> list[pathlib.Path]:
-    """Write the copy of a lookup store that `dist` publishes into `destination`, and return its paths.
+def publish(store: pathlib.Path, destination: pathlib.Path, /) -> pathlib.Path:
+    """Write the copy of a lookup store that `dist` publishes into `destination`, and return its path.
 
     The copy is `<destination>/<store name>`: the store compacted, so a consumer never meets a
     superseded line, with every chunk gzip-compressed. It is a Zarr store like any other, opened over
     HTTP by anything that reads Zarr, and each chunk is also a gzip file of whole JSONL lines, so a
     consumer without a Zarr library can fetch the chunks in order and decompress them.
-
-    Beside it goes `<stem>.jsonl.gz`, the whole as one compressed file, which is what `dist` has
-    always published: for a consumer that wants one URL. It is left out when it would be over
-    `joined_limit_bytes`, a size the chunks exist to avoid.
     """
     destination.mkdir(parents=True, exist_ok=True)
-    chunk_bytes = _chunk_bytes(_read_array_metadata(store))
-    published_store = destination / store.name
-    write_fresh(published_store, iter_latest_lines(store), chunk_bytes=chunk_bytes, compressed=True)
-    paths = [published_store]
-
-    joined = destination / f"{store.stem}.jsonl.gz"
-    with joined.open("wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as target:
-        for line in iter_latest_lines(store):
-            target.write(line.encode("utf-8") + _NEWLINE_BYTE)
-    if joined_limit_bytes is not None and joined.stat().st_size > joined_limit_bytes:
-        joined.unlink()
-    else:
-        paths.append(joined)
-    return paths
+    published = destination / store.name
+    write_fresh(
+        published, iter_latest_lines(store), chunk_bytes=_chunk_bytes(_read_array_metadata(store)), compressed=True
+    )
+    return published

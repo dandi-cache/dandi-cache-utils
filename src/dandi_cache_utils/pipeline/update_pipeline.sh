@@ -162,7 +162,6 @@ CACHE_NAME=""
 CACHE_IMAGE=""
 CACHE_URL=""
 CACHE_OUTPUTS=()
-CACHE_DIST_FILES=()
 INPUT_PATHS=()
 INPUT_URLS=()
 INPUT_BRANCHES=()
@@ -370,27 +369,18 @@ push_with_retry "${DS}" derivatives HEAD
 # ---------------------------------------------------------------------------------------------
 # Build and force-publish the consumer-facing `dist` artifact from a fresh repository.
 #
-# Only the files `cache.toml` declares as outputs are published. That is what keeps a `testing_`
-# artifact left by a smoke run from ever reaching consumers, and it replaces the guesswork of
-# globbing `derivatives/*.jsonl.gz`.
+# Only the outputs `cache.toml` declares are published. That is what keeps a `testing_` artifact left
+# by a smoke run from ever reaching consumers, and it replaces the guesswork of globbing
+# `derivatives`.
 # ---------------------------------------------------------------------------------------------
 mkdir -p "${DISTDIR}/derivatives"
-# An output kept as a Zarr store is written straight into `dist`, as a compacted, compressed store.
+# Each declared output, as a compacted store with its chunks gzip-compressed.
 dandi_cache compress --base-directory "${DS}" --config "${CONFIG_FILE}" --dist-directory "${DISTDIR}"
 
 published=0
 for store in "${DISTDIR}"/derivatives/*.zarr; do
   if [ -d "${store}" ]; then
     published=$((published + 1))
-  fi
-done
-# Each declared output, compressed, or for one declared with `publish_split`, each of its files.
-for output in "${CACHE_DIST_FILES[@]}"; do
-  if [ -f "${DS}/derivatives/${output}.gz" ]; then
-    cp "${DS}/derivatives/${output}.gz" "${DISTDIR}/derivatives/"
-    published=$((published + 1))
-  else
-    echo "WARNING: declared output ${output}.gz was not produced; not publishing it." >&2
   fi
 done
 
@@ -401,8 +391,7 @@ fi
 
 cp "${DS}/dataset_description.json" "${DISTDIR}/dataset_description.json"
 
-# The same check for what `dist` is about to publish, compressed: an output split across sixteen
-# files on `derivatives` is still one file here.
+# The same check for what `dist` is about to publish, compressed.
 dandi_cache check-sizes "${DISTDIR}" --output-name dist-size-warnings
 
 if [ "${PUBLISH_DIST}" = "false" ]; then

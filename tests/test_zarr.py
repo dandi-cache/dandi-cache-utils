@@ -8,6 +8,7 @@ import pytest
 
 import dandi_cache_utils as dandi_cache
 from dandi_cache_utils import CacheDataset, _zarr
+from dandi_cache_utils._config import split_names
 
 CHUNK = 1_000
 
@@ -127,7 +128,7 @@ def test_writing_afresh_replaces_the_store_and_compressed_chunks_are_reproducibl
 
 def zarr_dataset(tmp_path, **cache) -> CacheDataset:
     config = dandi_cache.parse_config(
-        {"cache": {"name": "my-cache", "zarr": ["my_cache.jsonl"], "zarr_chunk_bytes": CHUNK, **cache}},
+        {"cache": {"name": "my-cache", "chunk_bytes": CHUNK, **cache}},
         directory=tmp_path,
     )
     return CacheDataset(config=config, base_directory=tmp_path)
@@ -177,43 +178,61 @@ def test_writing_records_appends_when_the_store_holds_their_beginning(tmp_path):
     assert list(_zarr.iter_lines(store)) == ['{"z": 0}']
 
 
-@pytest.mark.ai_generated
-@pytest.mark.parametrize("before", [None, 16, 256, 4096])
-def test_declaring_zarr_moves_what_was_kept_as_files_into_the_store(tmp_path, before):
-    entries = {"0a1-x": 1, "ff3-y": 2, "123-z": 3}
-    if before is None:
-        older = dandi_cache.parse_config({"cache": {"name": "my-cache"}}, directory=tmp_path)
-    else:
-        digits = {16: 1, 256: 2, 4096: 3}[before]
-        older = dandi_cache.parse_config(
-            {"cache": {"name": "my-cache", "split": ["my_cache.jsonl"], "split_digits": digits}}, directory=tmp_path
-        )
-    CacheDataset(config=older, base_directory=tmp_path).write_output_lookup(entries)
+def write_legacy(directory: pathlib.Path, entries: dict, *, files: int | None) -> None:
+    """Write an output as an older version of the library kept it: one JSONL file, or split by key prefix."""
+    name = "my_cache.jsonl"
+    directory.mkdir(parents=True, exist_ok=True)
+    if files is None:
+        dandi_cache.write_lookup(directory / name, entries)
+        return
+    width = {16: 1, 256: 2, 4096: 3}[files]
+    shards: dict[str, dict] = {shard: {} for shard in split_names(name, files)}
+    for key, value in entries.items():
+        shards[f"my_cache_{key[:width].lower()}.jsonl"][key] = value
+    for shard, shard_entries in shards.items():
+        dandi_cache.write_lookup(directory / shard, shard_entries)
 
+
+@pytest.mark.ai_generated
+@pytest.mark.parametrize("files", [None, 16, 256, 4096])
+def test_an_output_kept_as_files_is_moved_into_the_store_by_the_next_write(tmp_path, files):
+    entries = {"0a1-x": 1, "ff3-y": 2, "123-z": 3}
+    derivatives = tmp_path / "derivatives"
+    write_legacy(derivatives, entries, files=files)
     dataset = zarr_dataset(tmp_path)
+
     assert dataset.read_output_lookup() == entries
+    assert dict(dataset.iter_output()) == entries
     dataset.merge_output_lookup({"new-1": 4})
 
-    derivatives = tmp_path / "derivatives"
     assert sorted(path.name for path in derivatives.iterdir()) == ["my_cache.zarr"]
     assert dataset.read_output_lookup() == {**entries, "new-1": 4}
 
 
 @pytest.mark.ai_generated
-def test_dropping_zarr_moves_the_store_back_into_files(tmp_path):
+def test_an_output_of_bare_ids_is_appended_to_and_rewritten_when_one_goes(tmp_path):
     dataset = zarr_dataset(tmp_path)
-    dataset.merge_output_lookup({"0a1-x": 1})
-    dataset.merge_output_lookup({"0a1-x": 2, "ff3-y": 3})
-    plain = CacheDataset(
-        config=dandi_cache.parse_config({"cache": {"name": "my-cache"}}, directory=tmp_path), base_directory=tmp_path
-    )
+    assert dataset.read_output_ids() == set()
 
-    assert plain.read_output_lookup() == {"0a1-x": 2, "ff3-y": 3}
-    plain.write_output_lookup(plain.read_output_lookup())
+    dataset.write_output_ids({"b", "a"})
+    dataset.write_output_ids({"a", "b", "c"})
+    store = tmp_path / "derivatives" / "my_cache.zarr"
+    assert list(_zarr.iter_lines(store)) == ['"a"', '"b"', '"c"']
 
-    derivatives = tmp_path / "derivatives"
-    assert sorted(path.name for path in derivatives.iterdir()) == ["my_cache.jsonl"]
-    assert dandi_cache.read_lookup(derivatives / "my_cache.jsonl") == {"0a1-x": 2, "ff3-y": 3}
+    dataset.write_output_ids({"c"})
+    assert dataset.read_output_ids() == {"c"}
+    assert list(_zarr.iter_lines(store)) == ['"c"']
+
+
+@pytest.mark.ai_generated
+def test_a_list_of_single_key_records_is_recorded_like_a_lookup(tmp_path):
+    dataset = zarr_dataset(tmp_path)
+    dataset.write_output_records([{"a": 1}, {"b": 2}])
+    dataset.write_output_records([{"a": 1}, {"b": 3}, {"c": 4}])
+
+    store = tmp_path / "derivatives" / "my_cache.zarr"
+    assert list(_zarr.iter_lines(store)) == ['{"a": 1}', '{"b": 2}', '{"b": 3}', '{"c": 4}']
+    assert dataset.read_output_lookup() == {"a": 1, "b": 3, "c": 4}
 
 
 @pytest.mark.ai_generated
@@ -268,7 +287,7 @@ def test_an_incremental_update_appends_to_a_zarr_output(tmp_path, in_memory):
 
 
 @pytest.mark.ai_generated
-def test_compressing_publishes_a_compacted_compressed_store_beside_one_joined_file(tmp_path):
+def test_compressing_publishes_a_compacted_compressed_store(tmp_path):
     from click.testing import CliRunner
 
     from dandi_cache_utils._cli import dandi_cache_cli
@@ -277,7 +296,7 @@ def test_compressing_publishes_a_compacted_compressed_store_beside_one_joined_fi
     dataset.merge_output_lookup({"a": 1, "b": 2})
     dataset.merge_output_lookup({"a": 3})
     config_file = tmp_path / "cache.toml"
-    config_file.write_text('[cache]\nname = "my-cache"\nzarr = ["my_cache.jsonl"]\nzarr_chunk_bytes = 1000\n')
+    config_file.write_text('[cache]\nname = "my-cache"\nchunk_bytes = 1000\n')
     dist = tmp_path / "dist"
 
     result = CliRunner().invoke(
@@ -290,24 +309,23 @@ def test_compressing_publishes_a_compacted_compressed_store_beside_one_joined_fi
     assert list(_zarr.iter_lines(published / "my_cache.zarr")) == ['{"b": 2}', '{"a": 3}']
     array = json.loads((published / "my_cache.zarr" / "stream" / "zarr.json").read_text())
     assert [codec["name"] for codec in array["codecs"]] == ["bytes", "gzip"]
-    assert gzip.decompress((published / "my_cache.jsonl.gz").read_bytes()) == b'{"b": 2}\n{"a": 3}\n'
+    assert gzip.decompress((published / "my_cache.zarr" / "stream" / "c" / "0").read_bytes()).startswith(b'{"b": 2}')
+    assert not list(published.glob("*.gz"))
 
 
 @pytest.mark.ai_generated
-def test_zarr_settings_are_checked(tmp_path):
-    with pytest.raises(ValueError, match="not one of `cache.outputs`"):
-        dandi_cache.parse_config({"cache": {"name": "my-cache", "zarr": ["other.jsonl"]}}, directory=tmp_path)
-    with pytest.raises(ValueError, match="both `cache.zarr` and `cache.split`"):
-        dandi_cache.parse_config(
-            {"cache": {"name": "my-cache", "zarr": ["my_cache.jsonl"], "split": ["my_cache.jsonl"]}},
-            directory=tmp_path,
-        )
-    with pytest.raises(ValueError, match="describes `cache.zarr`"):
-        dandi_cache.parse_config({"cache": {"name": "my-cache", "zarr_chunk_bytes": 5_000_000}}, directory=tmp_path)
+def test_the_chunk_size_is_checked(tmp_path):
+    with pytest.raises(ValueError, match="whole number of bytes"):
+        dandi_cache.parse_config({"cache": {"name": "my-cache", "chunk_bytes": 5}}, directory=tmp_path)
     with pytest.raises(ValueError, match="limit"):
-        dandi_cache.parse_config(
-            {"cache": {"name": "my-cache", "zarr": ["my_cache.jsonl"], "zarr_chunk_bytes": 10**9}}, directory=tmp_path
-        )
-    config = dandi_cache.parse_config({"cache": {"name": "my-cache", "zarr": ["my_cache.jsonl"]}}, directory=tmp_path)
-    assert config.zarr_chunk_bytes == 80_000_000
-    assert config.dist_files == ()
+        dandi_cache.parse_config({"cache": {"name": "my-cache", "chunk_bytes": 10**9}}, directory=tmp_path)
+    assert dandi_cache.parse_config({"cache": {"name": "my-cache"}}, directory=tmp_path).chunk_bytes == 80_000_000
+
+
+@pytest.mark.ai_generated
+@pytest.mark.parametrize("key", ["split", "split_digits", "split_files", "publish_split", "zarr", "zarr_chunk_bytes"])
+def test_a_layout_key_from_before_every_output_was_a_store_is_ignored_with_a_warning(tmp_path, key):
+    with pytest.warns(UserWarning, match=f"`cache.{key}` is ignored"):
+        config = dandi_cache.parse_config({"cache": {"name": "my-cache", key: ["my_cache.jsonl"]}}, directory=tmp_path)
+
+    assert config.chunk_bytes == 80_000_000
