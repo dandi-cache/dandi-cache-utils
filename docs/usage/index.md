@@ -37,6 +37,8 @@ The file stem, the image reference, the output file name, and each input's URL, 
 | `split` | `[]` | The outputs kept on `derivatives` as sixteen files rather than one. See below. |
 | `split_digits` | `1` | How many leading hexadecimal digits of a key choose its file, so how many files each split output is kept as: 1 for 16 files, 2 for 256, 3 for 4096. (`split_files = 16`, `256` or `4096` is the older spelling of the same thing.) |
 | `publish_split` | `false` | Publish the split outputs to `dist` as their separate compressed files rather than joined into one. |
+| `zarr` | `[]` | The outputs kept on `derivatives` as one Zarr store that only grows by appending, instead of one file or split files. See below. |
+| `zarr_chunk_bytes` | `80000000` | The size of each chunk file of a Zarr store, which is also the longest record it can hold. |
 
 #### Outputs near GitHub's file limit
 
@@ -61,6 +63,30 @@ name = "content-id-to-dandiset-paths"
 outputs = ["content_id_to_dandiset_paths.jsonl", "asset_manifest_checked_at.jsonl"]
 # Within days of GitHub's 100 MiB limit as one file.
 split = ["content_id_to_dandiset_paths.jsonl"]
+```
+
+#### Outputs that only grow: the Zarr store
+
+For an output that a cache extends run after run, `zarr` is the alternative to `split`: no width to choose, bump, or repack.
+An output listed there is kept on `derivatives` as `<stem>.zarr`, one 1-D `uint8` array whose bytes are the JSON Lines text, in chunk files of `zarr_chunk_bytes` each.
+
+- **It is plain text, and a record is never cut in two.** There is no compression codec, so each chunk file `stream/c/0`, `stream/c/1`, ... is UTF-8 text that git diffs and GitHub shows.
+  A record that does not fit in what is left of the current chunk pads it with newlines and starts the next, so every chunk is a self-contained set of whole lines, and the unfilled end of the last chunk is blank lines, never NUL bytes.
+- **A run only appends.** Only the last chunk and any new ones change, so the history of `derivatives` grows by what was added.
+  An entry replaced by a later run is a new line, and the last line for a key is the current one.
+  Once at least a fifth of the lines (and a thousand) are superseded, the end of `run_incremental_update` compacts the store, which rewrites it without them; `dataset.compact_output()` does so on demand.
+- **Nothing in `code/update.py` changes.** `read_output_lookup`, `iter_output`, `merge_output_lookup` and `write_output_lookup` work on a store as they do on files, with `iter_output` yielding the current entries only, and `run_incremental_update` appends each checkpoint's results whether or not it holds the cache in memory.
+  A store replaces whatever the output was kept as before: the first run after declaring it moves a single file or split files into it, and dropping the declaration moves it back.
+  `read_input` and `iter_input` read an upstream kept as a store.
+- **`dist` publishes a compacted copy.** `derivatives/<stem>.zarr/` with every chunk gzip-compressed, which is the Zarr `gzip` codec, so it opens as a Zarr store anywhere; and, when it fits under GitHub's limit, the usual `derivatives/<stem>.jsonl.gz` beside it.
+  The metadata is consolidated into the group's `zarr.json`, so opening a store over HTTP takes one request for its layout.
+- **The library needs no Zarr package.** The store is written and read with the standard library; the `zarr` package is only for a consumer that wants it.
+
+```toml
+[cache]
+name = "valid-nwb-file-to-array-sizes"
+# Grows by about 82 MB of JSON a run, and past GitHub's limit for one file within days.
+zarr = ["valid_nwb_file_to_array_sizes.jsonl"]
 ```
 
 ### `[[inputs]]`

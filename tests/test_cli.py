@@ -117,7 +117,7 @@ def test_check_sizes_warns_near_the_limit_and_reports_it_as_a_step_output(tmp_pa
 
     assert result.exit_code == 0
     assert "::warning" in result.output
-    assert "Declare `cache.jsonl` in `split`" in result.output
+    assert "Declare `cache.jsonl` in `zarr`" in result.output
     assert output.read_text().startswith("size-warnings<<SIZE_WARNINGS_END\nderivatives/cache.jsonl is ")
     assert "derivatives/cache.jsonl" in (tmp_path / "summary.md").read_text()
 

@@ -18,7 +18,7 @@ import pathlib
 
 import rich_click
 
-from . import _check, _config, _jsonl, _sizes, pipeline
+from . import _check, _config, _jsonl, _sizes, _zarr, pipeline
 from ._version import __version__
 
 CONFIG_ARGUMENT = rich_click.argument(
@@ -60,18 +60,39 @@ def dandi_cache_cli() -> None:
     default=None,
     help="The cache's `cache.toml`, whose `publish_split` outputs are compressed file by file rather than joined.",
 )
-def compress_command(base_directory: pathlib.Path, config_file: pathlib.Path | None) -> None:
+@rich_click.option(
+    "--dist-directory",
+    type=rich_click.Path(file_okay=False, path_type=pathlib.Path),
+    default=None,
+    help="Where the outputs kept as Zarr stores are published: `<dist-directory>/derivatives/`.",
+)
+def compress_command(
+    base_directory: pathlib.Path, config_file: pathlib.Path | None, dist_directory: pathlib.Path | None
+) -> None:
     """Gzip `derivatives/*.jsonl` for publication to the `dist` branch.
 
     The archives are written reproducibly, so a cache that has not changed republishes
-    byte-identical files rather than a new artifact on every run.
+    byte-identical files rather than a new artifact on every run. An output kept as a Zarr store is
+    published as a compacted, compressed store instead, into `--dist-directory`.
     """
     config = _config.read_config(config_file) if config_file is not None else None
     separate = config.split if config is not None and config.publish_split else ()
     compressed = _jsonl.compress_derivatives(base_directory, separate=separate)
-    for file_path in compressed:
+    published_stores = []
+    if config is not None and dist_directory is not None:
+        for output in config.zarr:
+            store = _zarr.store_path(base_directory / "derivatives" / output)
+            if not _zarr.exists(store):
+                rich_click.echo(f"WARNING: declared output {store.name} was not produced; not publishing it.", err=True)
+                continue
+            published_stores += _zarr.publish(
+                store,
+                dist_directory / "derivatives",
+                joined_limit_bytes=int(_sizes.WARNING_FRACTION * _config.GITHUB_FILE_LIMIT_BYTES),
+            )
+    for file_path in [*compressed, *published_stores]:
         rich_click.echo(file_path)
-    if not compressed:
+    if not compressed and not published_stores:
         rich_click.echo(f"No derivatives/*.jsonl files found under {base_directory}.", err=True)
 
 

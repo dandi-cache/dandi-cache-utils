@@ -158,7 +158,7 @@ def run_incremental_update(
     logging it, `on_error`, `on_write` and checkpoints all happen on the calling thread, in the order
     items finish.
 
-    `in_memory=False` is for a split output too large to hold in memory. The recorded items are
+    `in_memory=False` is for a split or Zarr output too large to hold in memory. The recorded items are
     read one at a time, keeping only which are recorded and which `retry_when` selects again, and
     each write merges this batch's results into only the files they belong to. The cache is then
     never loaded whole, and the mapping returned holds only this batch's results.
@@ -186,8 +186,11 @@ def run_incremental_update(
         records = dataset.read_output_lookup(output) if recorded is None else recorded
         selection_basis, selection_retry = records, retry_when
     else:
-        if not dataset._is_split(dataset.output_file_path(output)):
-            raise ValueError("`in_memory=False` merges into a split output; declare it in `cache.split`.")
+        output_path = dataset.output_file_path(output)
+        if not (dataset._is_split(output_path) or dataset._is_zarr(output_path)):
+            raise ValueError(
+                "`in_memory=False` merges into a split or Zarr output; declare it in `cache.split` or `cache.zarr`."
+            )
         if recorded is not None:
             raise ValueError("`recorded` holds the whole cache in memory, which `in_memory=False` is there to avoid.")
         records = {}
@@ -200,7 +203,9 @@ def run_incremental_update(
     unwritten: list = []
 
     def write_records() -> pathlib.Path:
-        if in_memory:
+        # A Zarr output only ever has this batch's results appended, whether or not the whole cache is
+        # held in memory: rewriting it whole would defeat keeping it that way.
+        if in_memory and not dataset._is_zarr(dataset.output_file_path(output)):
             return dataset.write_output_lookup(records, output)
         # Only what this batch added since the last write, so each file is rewritten once per result.
         file_path = dataset.merge_output_lookup({key: records[key] for key in unwritten}, output)
@@ -303,6 +308,8 @@ def run_incremental_update(
         file_path = write_records()
         if on_write is not None:
             on_write()
+        if dataset.compact_output_if_superseded(output):
+            logger.info("Compacted %s: most of the entries it held were superseded by later ones.", file_path)
         logger.info(
             "Wrote %d records to %s (%d new, %d failed) in %.1f min (peak memory %.0f MiB).",
             len(records) if in_memory else len(selection_basis) + len(set(records) - set(selection_basis)),

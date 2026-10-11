@@ -45,8 +45,13 @@ class SizeFinding:
 def _remedy(path: pathlib.PurePosixPath, /) -> str:
     if path.name.endswith(".jsonl.gz"):
         return "This is the compressed copy published to `dist`; it needs publishing as several files."
+    if ".zarr" in path.parts[1:2] or any(part.endswith(".zarr") for part in path.parts):
+        return "A chunk of a Zarr store is at most `zarr_chunk_bytes` (80 MB by default); lower it in `cache.toml`."
     if path.parts[:1] == ("derivatives",) and path.suffix == ".jsonl":
-        return f"Declare `{path.name}` in `split` under `[cache]` in cache.toml to keep it as sixteen files."
+        return (
+            f"Declare `{path.name}` in `zarr` under `[cache]` in cache.toml to keep it as a Zarr store that only "
+            "grows by appending, or in `split` (with `split_digits`) to keep it as several files."
+        )
     if path.parts[:1] == ("logs",):
         return "Error logs are capped well below this, so a log this large is a bug in the cache."
     return "Keep it smaller, or out of the repository."

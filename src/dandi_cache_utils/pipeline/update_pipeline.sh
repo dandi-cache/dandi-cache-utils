@@ -374,10 +374,16 @@ push_with_retry "${DS}" derivatives HEAD
 # artifact left by a smoke run from ever reaching consumers, and it replaces the guesswork of
 # globbing `derivatives/*.jsonl.gz`.
 # ---------------------------------------------------------------------------------------------
-dandi_cache compress --base-directory "${DS}" --config "${CONFIG_FILE}"
 mkdir -p "${DISTDIR}/derivatives"
+# An output kept as a Zarr store is written straight into `dist`, as a compacted, compressed store.
+dandi_cache compress --base-directory "${DS}" --config "${CONFIG_FILE}" --dist-directory "${DISTDIR}"
 
 published=0
+for store in "${DISTDIR}"/derivatives/*.zarr; do
+  if [ -d "${store}" ]; then
+    published=$((published + 1))
+  fi
+done
 # Each declared output, compressed, or for one declared with `publish_split`, each of its files.
 for output in "${CACHE_DIST_FILES[@]}"; do
   if [ -f "${DS}/derivatives/${output}.gz" ]; then

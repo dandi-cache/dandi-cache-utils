@@ -26,6 +26,12 @@
   `split_files = 256` keeps each split output as 256 files, by the first two digits of each key, rather than 16. `publish_split = true` publishes those files to `dist` one by one, compressed, rather than joined into one file, for an output too large for GitHub's limit even compressed.
   A split output is read from whichever layout it was last kept as, so changing either setting migrates on the next run.
   `read_input` reads an upstream kept as 256 files the same way it reads one kept as 16.
+- An output can be kept as a Zarr store that only ever grows by appending, declared with `zarr` in `cache.toml` beside `split`, and sized with `zarr_chunk_bytes` (80 MB by default).
+  It is written and read with the standard library, so the library still imports nothing outside it, and `zarr-python` 3 opens what it writes, compressed or not.
+  The chunk files are plain text of whole records, so git diffs them and a run changes only the last chunk and new ones; a replaced entry is a new line and the last one wins, and the end of `run_incremental_update` compacts the store once a fifth of its lines are superseded.
+  `CacheDataset` reads, merges, writes and iterates it as it does files, and moves an output between files and a store when the declaration changes, so no `code/update.py` changes.
+  `dist` gets a compacted, gzip-compressed copy of the store, with its metadata consolidated into the group's `zarr.json`, and the joined `<stem>.jsonl.gz` beside it while that fits under GitHub's limit.
+  `read_input` and `iter_input` read an upstream kept as a store, and `dandi-cache compress` takes `--dist-directory` to write one.
 - `split_digits` in `cache.toml` says how many leading hexadecimal digits of a key choose its file: `1` (the default) keeps each split output as 16 files, `2` as 256, and the new `3` as 4096, for an output whose files outgrow GitHub's limit even at 256. `split_files = 16`, `256` or `4096` still works as the older spelling, and the two cannot be declared together.
   `valid-nwb-file-to-array-sizes` hit it: its 256 files were 22 MB on average at 58% of the archive, but a few keys are ten times that, and one reached 99 MB.
   Changing `split_digits` in either direction repacks what is already on `derivatives` on the next `merge_output_lookup`, one group of files that share their leading digits at a time, so a cache too large for memory migrates without ever reading its whole output.

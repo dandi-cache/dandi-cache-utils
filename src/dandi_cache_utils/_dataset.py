@@ -11,10 +11,12 @@ published, a testing artifact can never reach the `dist` branch even if one is l
 """
 
 import dataclasses
+import json
 import pathlib
+import shutil
 import typing
 
-from . import _jsonl
+from . import _jsonl, _zarr
 from ._config import (
     DEFAULT_OPERATION,
     SPLIT_FILE_COUNTS,
@@ -112,6 +114,9 @@ class CacheDataset:
         otherwise be read as empty, and the run would happily publish an empty cache over a good one.
         """
         input_cache: InputCache = self.config.only_input if name is None else self.config.input(name)
+        store = self._input_store(name)
+        if store is not None:
+            return _read_store(store, format=input_cache.format)
         paths = self._input_paths(name)
         if paths is not None:
             return _jsonl.read_split_input(paths, format=input_cache.format)
@@ -121,8 +126,13 @@ class CacheDataset:
         """Yield an upstream lookup cache's `(key, value)` entries one at a time, in key order.
 
         For an input too large to hold in memory whole: only one entry is parsed at a time, and an
-        upstream kept as split files is read one file after another. Requires the input to exist.
+        upstream kept as split files is read one file after another, and one kept as a Zarr store one
+        chunk after another. Requires the input to exist.
         """
+        store = self._input_store(name)
+        if store is not None:
+            yield from _iter_store_items(store)
+            return
         paths = self._input_paths(name)
         if paths is None:
             file_path = self.input_file_path(name)
@@ -133,6 +143,12 @@ class CacheDataset:
             if path.exists():
                 for record in _jsonl.iter_json_lines(path):
                     yield from record.items()
+
+    def _input_store(self, name: str | None, /) -> pathlib.Path | None:
+        """The Zarr store an upstream keeps its cache as, or `None` when it keeps files."""
+        file_path = self.input_file_path(name)
+        store = _zarr.store_path(file_path)
+        return store if not file_path.exists() and _zarr.exists(store) else None
 
     def _input_paths(self, name: str | None, /) -> list[pathlib.Path] | None:
         """The split files an upstream keeps its cache as, or `None` when it keeps the single file."""
@@ -160,14 +176,27 @@ class CacheDataset:
 
         This is the basis of every incremental update: what is already recorded here is what the
         run does not need to do again. A split output is read from its sixteen files, or from the
-        single file when there are none yet, which is the whole of its first run's migration.
+        single file when there are none yet, which is the whole of its first run's migration. An
+        output kept as a Zarr store is read with the last entry for each key winning.
         """
-        paths = self._existing_layout(self.output_file_path(name))
-        return _jsonl.read_split_input(paths, format="lookup") if paths is not None else {}
+        source = self._existing_source(self.output_file_path(name))
+        if source is None:
+            return {}
+        if isinstance(source, pathlib.Path):
+            return dict(_iter_store_items(source))
+        return _jsonl.read_split_input(source, format="lookup")
 
     def iter_output(self, name: str | None = None, /) -> typing.Iterator[tuple[typing.Any, typing.Any]]:
-        """Yield this cache's own recorded `(key, value)` entries one at a time, never all at once."""
-        for path in self._existing_layout(self.output_file_path(name)) or []:
+        """Yield this cache's own recorded `(key, value)` entries one at a time, never all at once.
+
+        For an output kept as a Zarr store these are the current entries only: a key replaced by a
+        later line is yielded once, with its later value.
+        """
+        source = self._existing_source(self.output_file_path(name))
+        if isinstance(source, pathlib.Path):
+            yield from _iter_store_items(source)
+            return
+        for path in source or []:
             if path.exists():
                 for record in _jsonl.iter_json_lines(path):
                     yield from record.items()
@@ -180,9 +209,12 @@ class CacheDataset:
         is read whole once and rewritten in it, which is its migration.
         """
         file_path = self.output_file_path(name)
+        if self._is_zarr(file_path):
+            return self._append_to_store(file_path, records)
         if not self._is_split(file_path):
             raise ValueError(
-                f"{file_path.name} is not declared in `cache.split`; only a split output can be merged into."
+                f"{file_path.name} is not declared in `cache.split` or `cache.zarr`; "
+                "only a split or Zarr output can be merged into."
             )
         shard_paths = self._shard_paths(file_path)
         if not all(shard_path.exists() for shard_path in shard_paths):
@@ -210,6 +242,8 @@ class CacheDataset:
         returned path is the one file `dist` publishes it as.
         """
         file_path = self.output_file_path(name)
+        if self._is_zarr(file_path):
+            return self._write_lookup_to_store(file_path, records)
         if self._is_split(file_path):
             prefixes = split_prefixes(self.config.split_files)
             shards: dict[str, dict] = {prefix: {} for prefix in prefixes}
@@ -229,6 +263,8 @@ class CacheDataset:
         to the file its key's first digit names, in the order given.
         """
         file_path = self.output_file_path(name)
+        if self._is_zarr(file_path):
+            return self._write_records_to_store(file_path, records)
         if self._is_split(file_path):
             prefixes = split_prefixes(self.config.split_files)
             shards: dict[str, list] = {prefix: [] for prefix in prefixes}
@@ -247,6 +283,101 @@ class CacheDataset:
         """The files a split output is kept as: `<stem>_0.jsonl` to `<stem>_f.jsonl`, or `_00` to `_ff`."""
         return split_names(name, self.config.split_files)
 
+    def _is_zarr(self, file_path: pathlib.Path, /) -> bool:
+        return file_path.name.removeprefix(self.log_prefix) in self.config.zarr
+
+    def _append_to_store(self, file_path: pathlib.Path, records: typing.Mapping, /) -> pathlib.Path:
+        """Append `records` to the output's Zarr store, first moving whatever it was kept as into one."""
+        store = _zarr.store_path(file_path)
+        self._migrate_to_store(file_path)
+        _zarr.append_lines(
+            store,
+            (json.dumps({key: value}) for key, value in records.items()),
+            chunk_bytes=self.config.zarr_chunk_bytes,
+        )
+        self._remove_other_layout(file_path)
+        return store
+
+    def _migrate_to_store(self, file_path: pathlib.Path, /) -> None:
+        """Make a store out of the files the output was kept as, when it is not a store yet."""
+        store = _zarr.store_path(file_path)
+        if _zarr.exists(store):
+            return
+        files = self._existing_layout(file_path)
+        lines = (
+            json.dumps({key: value})
+            for path in files or []
+            if path.exists()
+            for record in _jsonl.iter_json_lines(path)
+            for key, value in record.items()
+        )
+        _zarr.write_fresh(store, lines, chunk_bytes=self.config.zarr_chunk_bytes)
+
+    def _write_lookup_to_store(self, file_path: pathlib.Path, records: typing.Mapping, /) -> pathlib.Path:
+        """Record a whole `{key: value}` mapping in the store, appending only what differs from it.
+
+        An entry the mapping no longer has cannot be expressed by appending, so then the store is
+        written afresh; otherwise nothing already in it is touched.
+        """
+        store = _zarr.store_path(file_path)
+        existing = self.read_output_lookup(file_path.name.removeprefix(self.log_prefix))
+        if any(key not in records for key in existing):
+            _zarr.write_fresh(
+                store,
+                (json.dumps({key: records[key]}) for key in sorted(records)),
+                chunk_bytes=self.config.zarr_chunk_bytes,
+            )
+            self._remove_other_layout(file_path)
+            return store
+        changed = {key: value for key, value in records.items() if key not in existing or existing[key] != value}
+        return self._append_to_store(file_path, changed)
+
+    def _write_records_to_store(self, file_path: pathlib.Path, records: typing.Iterable, /) -> pathlib.Path:
+        """Record a list in the store in the order given, appending when what is there is its beginning."""
+        store = _zarr.store_path(file_path)
+        lines = [json.dumps(record) for record in records]
+        existing = list(_zarr.iter_lines(store))
+        if lines[: len(existing)] == existing:
+            _zarr.append_lines(store, lines[len(existing) :], chunk_bytes=self.config.zarr_chunk_bytes)
+        else:
+            _zarr.write_fresh(store, lines, chunk_bytes=self.config.zarr_chunk_bytes)
+        self._remove_other_layout(file_path)
+        return store
+
+    def compact_output(self, name: str | None = None, /) -> bool:
+        """Rewrite an output's Zarr store without the lines a later line for the same key supersedes.
+
+        Returns whether anything was done. An output not kept as a store has nothing superseded.
+        """
+        store = _zarr.store_path(self.output_file_path(name))
+        if not (self._is_zarr(self.output_file_path(name)) and _zarr.exists(store)):
+            return False
+        total, current = _zarr.count_lines(store)
+        if total == current:
+            return False
+        _zarr.compact(store)
+        return True
+
+    def compact_output_if_superseded(
+        self, name: str | None = None, /, *, fraction: float = 0.2, minimum: int = 1000
+    ) -> bool:
+        """Compact an output's Zarr store once at least `fraction` of its lines, and `minimum`, are superseded.
+
+        Compacting rewrites most of the store's chunks, which shows in the branch's history as a large
+        change, so it is left until the superseded lines are enough to be worth it. A cache calls this
+        after its last write; `run_incremental_update` does.
+        """
+        file_path = self.output_file_path(name)
+        store = _zarr.store_path(file_path)
+        if not (self._is_zarr(file_path) and _zarr.exists(store)):
+            return False
+        total, current = _zarr.count_lines(store)
+        superseded = total - current
+        if superseded < minimum or superseded < fraction * total:
+            return False
+        _zarr.compact(store)
+        return True
+
     def _is_split(self, file_path: pathlib.Path, /) -> bool:
         return file_path.name.removeprefix(self.log_prefix) in self.config.split
 
@@ -263,12 +394,22 @@ class CacheDataset:
             )
         return prefix
 
-    def _existing_layout(self, file_path: pathlib.Path, /) -> list[pathlib.Path] | None:
-        """The files the output is kept as now: the declared layout first, then any it was kept as before.
+    def _existing_source(self, file_path: pathlib.Path, /) -> pathlib.Path | list[pathlib.Path] | None:
+        """Where the output is kept now: a Zarr store, or the files; the declared layout first.
 
-        Reading whichever exists is what lets changing `split` or `split_files` migrate on the next
-        run rather than lose what was recorded.
+        Reading whichever exists is what lets changing `split`, `split_digits` or `zarr` migrate on
+        the next run rather than lose what was recorded.
         """
+        store = _zarr.store_path(file_path)
+        if self._is_zarr(file_path) and _zarr.exists(store):
+            return store
+        files = self._existing_layout(file_path)
+        if files is not None:
+            return files
+        return store if _zarr.exists(store) else None
+
+    def _existing_layout(self, file_path: pathlib.Path, /) -> list[pathlib.Path] | None:
+        """The files the output is kept as now: the declared layout first, then any it was kept as before."""
         for paths in self._layouts(file_path):
             if any(path.exists() for path in paths):
                 return paths
@@ -280,6 +421,8 @@ class CacheDataset:
             [file_path.with_name(shard) for shard in split_names(file_path.name, files)] for files in SPLIT_FILE_COUNTS
         ]
         declared = self._shard_paths(file_path) if self._is_split(file_path) else [file_path]
+        if self._is_zarr(file_path):
+            return [[]] + layouts
         return [declared] + [layout for layout in layouts if layout != declared]
 
     def _repack_split_layout(self, file_path: pathlib.Path, /) -> None:
@@ -327,3 +470,23 @@ class CacheDataset:
         for layout in self._layouts(file_path)[1:]:
             for path in layout:
                 path.unlink(missing_ok=True)
+        if not self._is_zarr(file_path):
+            shutil.rmtree(_zarr.store_path(file_path), ignore_errors=True)
+
+
+def _iter_store_items(store: pathlib.Path, /) -> typing.Iterator[tuple[typing.Any, typing.Any]]:
+    """The current `(key, value)` entries of a lookup kept as a Zarr store."""
+    for line in _zarr.iter_latest_lines(store):
+        yield from json.loads(line).items()
+
+
+def _read_store(store: pathlib.Path, /, *, format: str) -> dict | list | set:
+    """Read a Zarr store in whichever of the three shapes its cache declares."""
+    if format == "lookup":
+        return dict(_iter_store_items(store))
+    values = [json.loads(line) for line in _zarr.iter_lines(store)]
+    if format == "records":
+        return values
+    if format == "ids":
+        return set(values)
+    raise ValueError(f"Unknown input format {format!r}; expected one of: ids, lookup, records.")

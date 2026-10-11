@@ -34,6 +34,10 @@ IMAGE_TEMPLATE = "ghcr.io/{organization}/{name}"
 #: `dist` still publishes it as one compressed file, which is far smaller.
 GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024
 
+#: The size of each chunk file of a Zarr store, unless `cache.zarr_chunk_bytes` says otherwise: 80 MB,
+#: under the point at which `check-sizes` starts warning about GitHub's 100 MiB limit for one file.
+DEFAULT_ZARR_CHUNK_BYTES = 80_000_000
+
 _HEX_DIGITS = "0123456789abcdef"
 
 #: How many files a split output can be kept as: one per leading hexadecimal digit of its keys, one
@@ -135,12 +139,23 @@ class CacheConfig:
     #: Whether `dist` publishes the split outputs as their separate compressed files rather than
     #: joined into one, for an output too large to publish as one file even compressed.
     publish_split: bool = False
+    #: The outputs kept on `derivatives` as one Zarr store that only ever grows by appending, in place
+    #: of a single file or split files. See `dandi_cache_utils._zarr`. Each is published to `dist` as
+    #: a compacted, compressed store of the same name.
+    zarr: tuple[str, ...] = ()
+    #: The size in bytes of each chunk file of a Zarr store, which is also the longest record it can hold.
+    zarr_chunk_bytes: int = DEFAULT_ZARR_CHUNK_BYTES
 
     @property
     def dist_files(self) -> tuple[str, ...]:
-        """The `.jsonl` names published to `dist`, each compressed: the outputs, or their split files."""
+        """The `.jsonl` names published to `dist`, each compressed: the outputs, or their split files.
+
+        An output kept as a Zarr store is not among them: it is published as a store, not a file.
+        """
         names: list[str] = []
         for output in self.outputs:
+            if output in self.zarr:
+                continue
             if output in self.split and self.publish_split:
                 names += split_names(output, self.split_files)
             else:
@@ -358,6 +373,23 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
                 f"`cache.split` entry {output!r} is not one of `cache.outputs`; only an output can be split."
             )
 
+    zarr = tuple(cache.get("zarr", []))
+    zarr_chunk_bytes = cache.get("zarr_chunk_bytes", DEFAULT_ZARR_CHUNK_BYTES)
+    if isinstance(zarr_chunk_bytes, bool) or not isinstance(zarr_chunk_bytes, int) or zarr_chunk_bytes < 1_000:
+        raise ValueError(f"`cache.zarr_chunk_bytes` must be a whole number of bytes, got {zarr_chunk_bytes!r}.")
+    if zarr_chunk_bytes > GITHUB_FILE_LIMIT_BYTES:
+        raise ValueError(
+            f"`cache.zarr_chunk_bytes` is {zarr_chunk_bytes:,}, past GitHub's limit of {GITHUB_FILE_LIMIT_BYTES:,} "
+            "bytes for one file."
+        )
+    if zarr_chunk_bytes != DEFAULT_ZARR_CHUNK_BYTES and not zarr:
+        raise ValueError("`cache.zarr_chunk_bytes` describes `cache.zarr`, which declares nothing.")
+    for output in zarr:
+        if output not in outputs:
+            raise ValueError(f"`cache.zarr` entry {output!r} is not one of `cache.outputs`.")
+        if output in split:
+            raise ValueError(f"{output!r} is in both `cache.zarr` and `cache.split`; keep it one way or the other.")
+
     inputs = tuple(_parse_input(entry) for entry in raw.get("inputs", []))
     input_paths = [input_cache.path for input_cache in inputs]
     if len(set(input_paths)) != len(input_paths):
@@ -371,6 +403,8 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
         split=split,
         split_files=split_files,
         publish_split=publish_split,
+        zarr=zarr,
+        zarr_chunk_bytes=zarr_chunk_bytes,
         inputs=inputs,
         operations=_parse_operations(_require_mapping(raw.get("operations", {}), where="operations"), cache_name=name),
         description=_parse_description(
@@ -483,6 +517,11 @@ def describe(config: CacheConfig, /) -> str:
                 + (", published separately" if config.publish_split else "")
             ]
             if config.split
+            else []
+        ),
+        *(
+            [f"zarr:       {', '.join(config.zarr)} as appendable stores of {config.zarr_chunk_bytes:,}-byte chunks"]
+            if config.zarr
             else []
         ),
         f"operations: {', '.join(sorted(config.operations))}",
