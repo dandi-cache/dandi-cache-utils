@@ -9,7 +9,7 @@
   It is written and read with the standard library, so the library still imports nothing outside it, and `zarr-python` 3 opens what it writes, raw or compressed.
   `split`, `split_digits`, `split_files`, `publish_split`, `zarr` and `zarr_chunk_bytes` are read and ignored with a warning; `chunk_bytes` (48 MiB by default, under the 50 MiB at which GitHub warns on every push; an existing store keeps its chunk size) sizes the chunks, and bounds the longest record.
   An output kept as a file or as split files is moved into its store by its first write, and an upstream cache that has not moved yet is still read as it is, so nothing has to be done in a cache beyond removing those keys.
-  `dist` publishes each output as a compacted store with every chunk gzip-compressed, which is the Zarr `gzip` codec, so it opens over HTTP anywhere Zarr does and its chunks are gzip-compressed JSONL that needs no Zarr library. It no longer publishes `<stem>.jsonl.gz`: a consumer of that URL reads the chunks instead.
+  `dist` publishes each output compacted, as one `<stem>.jsonl.gz` as before, unless that would pass the 50 MiB at which GitHub warns about a file ([#32](https://github.com/dandi-cache/dandi-cache-utils/pull/32)). Only then is it a store with every chunk gzip-compressed, which is the Zarr `gzip` codec, so it opens over HTTP anywhere Zarr does and its chunks are gzip-compressed JSONL that needs no Zarr library.
   `compress` and `compress_derivatives` are gone, and `dandi-cache compress` takes `--config` and `--dist-directory`, both required. `CacheDataset` gains `read_output_ids`, `write_output_ids`, `output_store_path`, `compact_output` and `compact_output_if_superseded`; a cache that read or wrote an output's file by its path, as the two qualifying caches did for `error_ids`, uses them.
 - `nwb.electrical_series_paths` is gone, and with it the library's last use of SpikeInterface.
   It existed for the two qualifying caches, and listing and opening an NWB file's ElectricalSeries is those caches' own business, as is the `spikeinterface` pin they carry: each now does it in a `code/ephys_recordings.py` of its own ([qualifying-aind-content-ids#76](https://github.com/dandi-cache/qualifying-aind-content-ids/pull/76), [qualifying-lfp-content-ids#17](https://github.com/dandi-cache/qualifying-lfp-content-ids/pull/17)).
@@ -37,7 +37,7 @@
   Only `process` runs in the threads; recording results, logging, `on_error`, `on_write` and checkpoints stay on the calling thread. `ErrorLog` appends are now locked, so concurrent failures cannot interleave in one log. ([#26](https://github.com/dandi-cache/dandi-cache-utils/pull/26))
 - A run recorded on `derivatives` can be re-executed from a clone of `derivatives` alone ([dandi-cache/cache-template#31](https://github.com/dandi-cache/cache-template/issues/31)).
   The cache's own code is recorded there as the `workspace` subdataset, at the commit the run executes, and the run mounts it from there rather than from the runner's `$WORKSPACE` checkout, which `datalad rerun` could never reach.
-  Its `url` is `.`, which git resolves to the same repository; `datalad-url` names it in full, since DataLad cannot install from `.` ([datalad/datalad#7889](https://github.com/datalad/datalad/issues/7889)).
+  Its `url` is `../<name>.git`, which git and GitHub resolve to the same repository; `datalad-url` names it in full, since DataLad cannot install from a relative URL ([datalad/datalad#7889](https://github.com/datalad/datalad/issues/7889)).
   It is a declared `--input` of the run, so `datalad rerun` installs it first. A run whose code did not change records nothing new.
 - An output listed in `cache.toml`'s new `split` is kept on `derivatives` as sixteen files, `<stem>_0.jsonl` to `<stem>_f.jsonl`, by the first digit of each key, for one that would pass GitHub's 100 MiB limit on a plain-git branch.
   It is a declaration and nothing more: `read_output_lookup`, `write_output_lookup` and `write_output_records` read and write the sixteen files for such an output, so a cache's code does not change, and the first run after declaring it reads the single file and removes it.
@@ -120,6 +120,12 @@
   Each release also publishes the version as its own tag, so a cache can pin its orchestration to an exact release.
 - Added the `dandi-cache` command (`compress`, `config show`, `config shell`, `dataset-description`), built on `rich-click`, the distribution's one required dependency.
   The optional extras stay out of the import graph: `api`, `nwb` and `s3` import theirs inside the functions that use them, so a cache on the `:latest` image never pays for the NWB stack.
+
+### 🐛 Bug Fix
+
+- The `workspace` subdataset on `derivatives` now links to the cache's own repository on GitHub.
+  Its `url` was `.`, which git resolves but GitHub cannot, so GitHub showed `workspace @ <commit>` as plain text.
+  It is now `../<name>.git`, which both resolve to the same repository, and every cache's next run rewrites it. ([#34](https://github.com/dandi-cache/dandi-cache-utils/pull/34))
 
 ### 🏠 Internal
 

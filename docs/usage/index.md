@@ -52,7 +52,9 @@ GitHub refuses a push carrying any file over 100 MiB, and the pipeline pushes `d
 <!-- TODO: remove this bullet and the migration code it describes a couple of weeks after every cache has moved to Zarr stores. -->
 - **Moving in is automatic.** An output that an older version kept as one JSONL file, or split across 16, 256 or 4096 files by key prefix, is read as it is and moved into its store by the first write, which removes the files.
   The old `cache.toml` keys `split`, `split_digits`, `split_files`, `publish_split`, `zarr` and `zarr_chunk_bytes` are ignored with a warning, and can be removed.
-- **`dist` publishes a compacted copy of each store**, `derivatives/<stem>.zarr/`, with every chunk gzip-compressed: the Zarr `gzip` codec, so it opens as a Zarr store anywhere, over HTTP too, and each chunk is also a gzip file of whole JSONL lines, so a consumer with no Zarr library can fetch the chunks in order and decompress them.
+- **`dist` publishes a compacted copy of each store as one file**, `derivatives/<stem>.jsonl.gz`: gzip-compressed JSON Lines holding only the current entries.
+  An output whose compressed copy would pass 50 MiB, the size at which GitHub warns about a file, is published as a store instead, `derivatives/<stem>.zarr/`, with every chunk gzip-compressed.
+  That is the Zarr `gzip` codec, so it opens as a Zarr store anywhere, over HTTP too, and each chunk is also a gzip file of whole JSONL lines, so a consumer with no Zarr library can fetch the chunks in order and decompress them.
   The metadata is consolidated into the group's `zarr.json`, so opening a store over HTTP takes one request for its layout.
 - **The library needs no Zarr package.** The store is written and read with the standard library; the `zarr` package is only for a consumer that wants it.
 - **A validity check before every push.** `dandi-cache validate` checks each store against this layout, and has `zarr-python` 3 decode every chunk of it and compare with the files' bytes, first on what is about to go to `derivatives` and again on what `dist` is about to publish. A store that fails is not pushed, and neither is anything if the cross-check cannot run: every cache's stores are checked on every run, with no way to skip it.
@@ -347,7 +349,7 @@ It is rarely run by hand, but it is how a cache's configuration can be inspected
 dandi-cache config show cache.toml          # what the declaration resolves to
 dandi-cache config shell cache.toml         # the same, as bash assignments
 dandi-cache dataset-description cache.toml  # the BIDS metadata, rendered
-dandi-cache compress --config cache.toml --dist-directory dist   # publish each output's store, compressed
+dandi-cache compress --config cache.toml --dist-directory dist   # publish each output, compressed
 dandi-cache check-sizes .                   # files near GitHub's 100 MiB limit
 ```
 
