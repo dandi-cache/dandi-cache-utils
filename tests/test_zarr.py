@@ -327,6 +327,20 @@ def test_compressing_publishes_one_compacted_gzip_file(tmp_path):
 
 
 @pytest.mark.ai_generated
+def test_an_output_of_bare_ids_is_counted_compacted_and_published(tmp_path):
+    first, second, third = ['"0006b7a8-e570-48de-89ec-83f61ec6cf19"', '"009aa50f-cd5b"', '"00e81420"']
+    store = tmp_path / "ids.zarr"
+    _zarr.write_fresh(store, [first, second], chunk_bytes=1000)
+    _zarr.append_lines(store, [first, third], chunk_bytes=1000)
+
+    assert _zarr.count_lines(store) == (4, 3)
+    bundle = _zarr.publish(store, tmp_path / "dist")
+    assert gzip.decompress(bundle.read_bytes()).decode().split() == [second, first, third]
+    _zarr.compact(store)
+    assert list(_zarr.iter_lines(store)) == [second, first, third]
+
+
+@pytest.mark.ai_generated
 def test_publishing_twice_writes_an_identical_gzip_file(tmp_path):
     store = tmp_path / "my_cache.zarr"
     _zarr.append_lines(store, lines(0, 100), chunk_bytes=CHUNK)

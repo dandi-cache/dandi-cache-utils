@@ -3,7 +3,8 @@
 Two checks, because they fail differently:
 
 - `problems_with_store` is standard library only. It checks the store against the layout this
-  package promises: consistent metadata, chunks that are whole lines of JSON, nothing but newlines
+  package promises: consistent metadata, chunks that are whole lines of JSON (an object per line, or
+  a bare ID such as a string), nothing but newlines
   after the last record. It is cheap enough to run on every store before every push.
 - `cross_check_with_zarr_python` asks the `zarr` package (version 3) to read the same store and
   compares what it decodes, chunk by chunk, with what this package reads. That is what shows a store
@@ -95,8 +96,9 @@ def _problems_with_chunk(store: pathlib.Path, index: int, length: int, chunk_byt
             record = json.loads(raw)
         except ValueError:
             return [f"{where}, line {number} is not JSON, so a record may have been cut across chunks."]
-        if not isinstance(record, dict):
-            return [f"{where}, line {number} is not a JSON object."]
+        # A lookup or records output holds an object per line; an output of IDs, a bare scalar.
+        if isinstance(record, list):
+            return [f"{where}, line {number} is a JSON array, which is neither a record nor a bare ID."]
     return []
 
 
