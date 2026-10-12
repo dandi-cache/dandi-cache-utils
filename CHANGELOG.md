@@ -124,7 +124,7 @@
 
 - The `workspace` subdataset on `derivatives` now links to the cache's own repository on GitHub.
   Its `url` was `.`, which git resolves but GitHub cannot, so GitHub showed `workspace @ <commit>` as plain text.
-  It is now `../<name>.git`, which both resolve to the same repository, and every cache's next run rewrites it. ([#PR](https://github.com/dandi-cache/dandi-cache-utils/pull/PR))
+  It is now `../<name>.git`, which both resolve to the same repository, and every cache's next run rewrites it. ([#34](https://github.com/dandi-cache/dandi-cache-utils/pull/34))
 
 ### 🏠 Internal
 
