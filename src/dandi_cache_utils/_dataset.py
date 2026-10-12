@@ -347,11 +347,11 @@ class CacheDataset:
             return
         files = self._legacy_files(file_path)
         lines = (
-            json.dumps({key: value})
+            line
             for path in files or []
             if path.exists()
             for record in _jsonl.iter_json_lines(path)
-            for key, value in record.items()
+            for line in _store_lines(record)
         )
         _zarr.write_fresh(store, lines, chunk_bytes=self.config.chunk_bytes)
         self._remove_legacy_files(file_path)
@@ -362,6 +362,15 @@ class CacheDataset:
         for layout in self._legacy_layouts(file_path):
             for path in layout:
                 path.unlink(missing_ok=True)
+
+
+# TODO: remove this legacy-layout support a couple of weeks after every cache has moved to Zarr stores.
+def _store_lines(record: typing.Any, /) -> typing.Iterator[str]:
+    """The store lines for one line of a legacy file: an entry per key of a mapping, or a bare ID as it is."""
+    if isinstance(record, dict):
+        yield from (json.dumps({key: value}) for key, value in record.items())
+    else:
+        yield json.dumps(record)
 
 
 def _iter_store_items(store: pathlib.Path, /) -> typing.Iterator[tuple[typing.Any, typing.Any]]:

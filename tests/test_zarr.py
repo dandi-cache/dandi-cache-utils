@@ -225,6 +225,22 @@ def test_an_output_of_bare_ids_is_appended_to_and_rewritten_when_one_goes(tmp_pa
 
 
 @pytest.mark.ai_generated
+@pytest.mark.parametrize("removed", [False, True])
+def test_an_output_of_bare_ids_kept_as_a_file_is_moved_into_the_store_by_the_next_write(tmp_path, removed):
+    derivatives = tmp_path / "derivatives"
+    derivatives.mkdir()
+    (derivatives / "my_cache.jsonl").write_text('"b"\n"a"\n')
+    dataset = zarr_dataset(tmp_path)
+    assert dataset.read_output_ids() == {"a", "b"}
+
+    identifiers = {"a"} if removed else {"a", "b", "c"}
+    dataset.write_output_ids(identifiers)
+
+    assert sorted(path.name for path in derivatives.iterdir()) == ["my_cache.zarr"]
+    assert dataset.read_output_ids() == identifiers
+
+
+@pytest.mark.ai_generated
 def test_a_list_of_single_key_records_is_recorded_like_a_lookup(tmp_path):
     dataset = zarr_dataset(tmp_path)
     dataset.write_output_records([{"a": 1}, {"b": 2}])
