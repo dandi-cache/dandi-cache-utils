@@ -35,8 +35,9 @@ IMAGE_TEMPLATE = "ghcr.io/{organization}/{name}"
 GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024
 
 #: The size of each chunk file of an output's Zarr store, unless `cache.chunk_bytes` says otherwise:
-#: 80 MB, under the point at which `check-sizes` starts warning about GitHub's 100 MiB limit.
-DEFAULT_CHUNK_BYTES = 80_000_000
+#: 48 MiB, under the 50 MiB at which GitHub warns about a file on every push, and well under its
+#: 100 MiB limit. An existing store keeps the chunk size it was made with.
+DEFAULT_CHUNK_BYTES = 48 * 1024 * 1024
 
 #: The `cache.toml` keys of the layouts there used to be a choice between, before every output became
 #: a Zarr store. They are read and ignored, with a warning, so a cache that still declares one keeps
