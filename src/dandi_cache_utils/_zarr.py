@@ -20,8 +20,9 @@ and the unwritten tail of the last chunk reads as blank lines, never NUL bytes. 
   opened over HTTP that is one request instead of one per node.
 
 A replaced entry is a new line appended, and the last line for a key wins; `compact` rewrites the
-store without the superseded lines. The published copy on `dist` is such a compacted store with each
-chunk gzip-compressed, which is a Zarr codec like any other.
+store without the superseded lines. The published copy on `dist` is the current lines as one
+`<stem>.jsonl.gz`, unless that would pass the size at which GitHub warns about a file; then it is a
+compacted store with each chunk gzip-compressed, which is a Zarr codec like any other.
 
 This writer does not depend on the `zarr` package, whose use would put it in the runner's
 bootstrap, and the tests open what it writes with that package to keep the two in step.
@@ -38,6 +39,10 @@ from ._config import DEFAULT_CHUNK_BYTES as DEFAULT_ZARR_CHUNK_BYTES
 #: The chunk size, in bytes, of a store that does not say otherwise. It leaves a chunk well under the
 #: point at which `check-sizes` starts warning about GitHub's 100 MiB limit for one file.
 DEFAULT_CHUNK_BYTES = DEFAULT_ZARR_CHUNK_BYTES
+
+#: The largest `<stem>.jsonl.gz` that `dist` publishes: the size at which GitHub starts warning about a
+#: file on push. An output whose compressed whole is larger is published as a compressed store.
+BUNDLE_LIMIT_BYTES = 50 * 1024 * 1024
 
 #: The name of the array inside the group.
 ARRAY_NAME = "stream"
@@ -192,7 +197,7 @@ def _iter_raw_lines(store: pathlib.Path, /) -> typing.Iterator[bytes]:
 def iter_lines(store: pathlib.Path, /) -> typing.Iterator[str]:
     """Yield the non-blank lines of the store in order, one chunk at a time.
 
-    Chunks written with the gzip codec, as the published copy on `dist` is, are read the same way.
+    Chunks written with the gzip codec, as a store published to `dist` is, are read the same way.
     """
     for raw in _iter_raw_lines(store):
         yield raw.decode("utf-8")
@@ -248,7 +253,7 @@ def write_fresh(
 ) -> None:
     """Write `lines` as a store that replaces whatever is at `store`.
 
-    `compressed` gzips every chunk and says so in the metadata, which is how `dist` publishes it.
+    `compressed` gzips every chunk and says so in the metadata, which is how `dist` publishes a store.
     The gzip header carries no timestamp, so unchanged input compresses to identical files run after
     run, and republishing `dist` does not look like a change.
     """
@@ -291,17 +296,49 @@ def compact(store: pathlib.Path, /) -> None:
     write_fresh(store, iter_latest_lines(store), chunk_bytes=chunk_bytes)
 
 
-def publish(store: pathlib.Path, destination: pathlib.Path, /) -> pathlib.Path:
+def _write_bundle(bundle: pathlib.Path, lines: typing.Iterable[str], /, *, limit_bytes: int) -> bool:
+    """Write `lines` as one gzip-compressed JSONL file at `bundle`, unless it would pass `limit_bytes`.
+
+    Returns whether it was written. Compression stops as soon as the output passes the limit, so an
+    output far too large for one file costs only the part read before it does. The gzip header
+    carries no name and no timestamp, so unchanged input compresses to an identical file.
+    """
+    temporary = bundle.with_name(f"{bundle.name}.writing")
+    fits = True
+    with temporary.open("wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=9, mtime=0) as compressed:
+            for line in lines:
+                compressed.write((line if line.endswith("\n") else f"{line}\n").encode("utf-8"))
+                if raw.tell() > limit_bytes:
+                    fits = False
+                    break
+        fits = fits and raw.tell() <= limit_bytes
+    if not fits:
+        temporary.unlink()
+        return False
+    temporary.replace(bundle)
+    return True
+
+
+def publish(
+    store: pathlib.Path, destination: pathlib.Path, /, *, bundle_limit_bytes: int = BUNDLE_LIMIT_BYTES
+) -> pathlib.Path:
     """Write the copy of a lookup store that `dist` publishes into `destination`, and return its path.
 
-    The copy is `<destination>/<store name>`: the store compacted, so a consumer never meets a
-    superseded line, with every chunk gzip-compressed. It is a Zarr store like any other, opened over
-    HTTP by anything that reads Zarr, and each chunk is also a gzip file of whole JSONL lines, so a
-    consumer without a Zarr library can fetch the chunks in order and decompress them.
+    The copy holds the store's current lines, so a consumer never meets a superseded one. It is one
+    gzip-compressed JSON Lines file, `<destination>/<stem>.jsonl.gz`, when that comes to at most
+    `bundle_limit_bytes`. Past that it is `<destination>/<stem>.zarr`, the store compacted with every
+    chunk gzip-compressed: a Zarr store like any other, opened over HTTP by anything that reads Zarr,
+    whose chunks are also gzip files of whole JSONL lines that need no Zarr library.
     """
     destination.mkdir(parents=True, exist_ok=True)
-    published = destination / store.name
+    bundle = destination / f"{store.stem}.jsonl.gz"
+    compacted = destination / store.name
+    if _write_bundle(bundle, iter_latest_lines(store), limit_bytes=bundle_limit_bytes):
+        shutil.rmtree(compacted, ignore_errors=True)
+        return bundle
+    bundle.unlink(missing_ok=True)
     write_fresh(
-        published, iter_latest_lines(store), chunk_bytes=_chunk_bytes(_read_array_metadata(store)), compressed=True
+        compacted, iter_latest_lines(store), chunk_bytes=_chunk_bytes(_read_array_metadata(store)), compressed=True
     )
-    return published
+    return compacted

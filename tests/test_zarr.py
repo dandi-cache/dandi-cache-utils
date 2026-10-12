@@ -287,7 +287,7 @@ def test_an_incremental_update_appends_to_a_zarr_output(tmp_path, in_memory):
 
 
 @pytest.mark.ai_generated
-def test_compressing_publishes_a_compacted_compressed_store(tmp_path):
+def test_compressing_publishes_one_compacted_gzip_file(tmp_path):
     from click.testing import CliRunner
 
     from dandi_cache_utils._cli import dandi_cache_cli
@@ -306,11 +306,41 @@ def test_compressing_publishes_a_compacted_compressed_store(tmp_path):
 
     assert result.exit_code == 0, result.output
     published = dist / "derivatives"
-    assert list(_zarr.iter_lines(published / "my_cache.zarr")) == ['{"b": 2}', '{"a": 3}']
-    array = json.loads((published / "my_cache.zarr" / "stream" / "zarr.json").read_text())
+    assert sorted(path.name for path in published.iterdir()) == ["my_cache.jsonl.gz"]
+    assert gzip.decompress((published / "my_cache.jsonl.gz").read_bytes()) == b'{"b": 2}\n{"a": 3}\n'
+
+
+@pytest.mark.ai_generated
+def test_publishing_twice_writes_an_identical_gzip_file(tmp_path):
+    store = tmp_path / "my_cache.zarr"
+    _zarr.append_lines(store, lines(0, 100), chunk_bytes=CHUNK)
+
+    first = _zarr.publish(store, tmp_path / "first")
+    second = _zarr.publish(store, tmp_path / "second")
+
+    assert first.name == "my_cache.jsonl.gz"
+    assert first.read_bytes() == second.read_bytes()
+    with gzip.open(first, "rt") as stream:
+        assert stream.read().splitlines() == lines(0, 100)
+
+
+@pytest.mark.ai_generated
+def test_an_output_too_large_for_one_file_is_published_as_a_compressed_store(tmp_path):
+    store = tmp_path / "my_cache.zarr"
+    _zarr.append_lines(store, lines(0, 150), chunk_bytes=CHUNK)
+    _zarr.append_lines(store, [json.dumps({"000000": "replaced"})], chunk_bytes=CHUNK)
+    destination = tmp_path / "dist"
+    (destination / "my_cache.jsonl.gz").parent.mkdir()
+    (destination / "my_cache.jsonl.gz").write_bytes(b"left from an earlier run")
+
+    published = _zarr.publish(store, destination, bundle_limit_bytes=100)
+
+    assert published == destination / "my_cache.zarr"
+    assert sorted(path.name for path in destination.iterdir()) == ["my_cache.zarr"]
+    assert list(_zarr.iter_lines(published)) == lines(1, 149) + [json.dumps({"000000": "replaced"})]
+    array = json.loads((published / "stream" / "zarr.json").read_text())
     assert [codec["name"] for codec in array["codecs"]] == ["bytes", "gzip"]
-    assert gzip.decompress((published / "my_cache.zarr" / "stream" / "c" / "0").read_bytes()).startswith(b'{"b": 2}')
-    assert not list(published.glob("*.gz"))
+    assert gzip.decompress(chunk_files(published)[0].read_bytes()).startswith(lines(1, 1)[0].encode())
 
 
 @pytest.mark.ai_generated

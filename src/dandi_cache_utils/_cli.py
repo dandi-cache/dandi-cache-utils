@@ -67,11 +67,12 @@ def dandi_cache_cli() -> None:
     help="Where the outputs are published: `<dist-directory>/derivatives/`.",
 )
 def compress_command(base_directory: pathlib.Path, config_file: pathlib.Path, dist_directory: pathlib.Path) -> None:
-    """Publish each declared output's Zarr store to the `dist` branch.
+    """Publish each declared output to the `dist` branch.
 
-    The copy is compacted, so a consumer meets only current entries, and every chunk is gzip-compressed
-    with no timestamp, so a cache that has not changed republishes byte-identical files rather than a
-    new artifact on every run.
+    The copy is compacted, so a consumer meets only current entries. It is one `<stem>.jsonl.gz` when
+    that comes to at most 50 MiB, the size at which GitHub warns about a file, and otherwise the Zarr
+    store with every chunk gzip-compressed. Either way the gzip carries no timestamp, so a cache that
+    has not changed republishes byte-identical files rather than a new artifact on every run.
     """
     config = _config.read_config(config_file)
     published = 0
