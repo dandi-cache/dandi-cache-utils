@@ -34,7 +34,7 @@ The file stem, the image reference, the output file name, and each input's URL, 
 | `file_stem` | the underscored `name` | The stem of the default output file. |
 | `image` | `ghcr.io/dandi-cache/<name>` | This cache's runtime image. |
 | `outputs` | `["<file_stem>.jsonl"]` | Every output published to `dist`, by the `.jsonl` name the cache's code addresses it by; each is kept as the Zarr store `<name>.zarr`. Declaring them is what keeps a `testing_` artifact from reaching consumers. |
-| `chunk_bytes` | `80000000` | The size of each chunk file of an output's Zarr store, which is also the longest record it can hold. See below. |
+| `chunk_bytes` | `50331648` (48 MiB) | The size of each chunk file of an output's Zarr store, which is also the longest record it can hold. See below. |
 
 #### How outputs are stored
 
