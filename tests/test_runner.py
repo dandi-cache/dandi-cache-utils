@@ -157,6 +157,17 @@ def test_a_run_logs_how_much_of_its_candidates_is_recorded(dataset, caplog, in_m
 
 
 @pytest.mark.ai_generated
+def test_progress_can_be_logged_by_a_cache_that_selects_its_own_batch(caplog):
+    caplog.set_level("INFO")
+    dandi_cache.log_progress(975, 1252)
+    dandi_cache.log_progress(0, 0)
+    assert [record.getMessage() for record in caplog.records] == [
+        "Progress: 975 of 1,252 candidates recorded (77.9%).",
+        "Progress: 0 of 0 candidates recorded (100.0%).",
+    ]
+
+
+@pytest.mark.ai_generated
 def test_a_limit_bounds_the_batch(dataset):
     _records, result = dandi_cache.run_incremental_update(
         dataset,
