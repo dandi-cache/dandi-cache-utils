@@ -316,14 +316,23 @@ def run_incremental_update(
         # One line a reader such as the cache dashboard can parse: how much of the cache's candidate set is
         # recorded now. A recorded failure counts, as the item has been tried.
         candidate_set = set(universe)
-        done = sum(1 for item in candidate_set if item in selection_basis or item in records)
-        logger.info(
-            "Progress: %s of %s candidates recorded (%.1f%%).",
-            f"{done:,}",
-            f"{len(candidate_set):,}",
-            100 * done / len(candidate_set) if candidate_set else 100.0,
-        )
+        log_progress(sum(1 for item in candidate_set if item in selection_basis or item in records), len(candidate_set))
     return records, result
+
+
+def log_progress(done: int, total: int, /) -> None:
+    """Log how much of a cache's candidates is done, as the one line the cache dashboard reads.
+
+    `run_incremental_update` given `candidates` logs it itself. A cache that selects its own batch,
+    or reads its whole source every run, calls this with what it has tried out of what there is: an
+    item that was tried and could not be read counts, as it has been tried.
+    """
+    logger.info(
+        "Progress: %s of %s candidates recorded (%.1f%%).",
+        f"{done:,}",
+        f"{total:,}",
+        100 * done / total if total else 100.0,
+    )
 
 
 def _default_memory_limit_mib() -> float:
