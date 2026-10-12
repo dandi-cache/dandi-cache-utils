@@ -37,7 +37,7 @@ GITHUB_FILE_LIMIT_BYTES = 100 * 1024 * 1024
 #: The size of each chunk file of an output's Zarr store, unless `cache.chunk_bytes` says otherwise:
 #: 48 MiB, under the 50 MiB at which GitHub warns about a file on every push, and well under its
 #: 100 MiB limit. An existing store keeps the chunk size it was made with.
-DEFAULT_CHUNK_BYTES = 48 * 1024 * 1024
+DEFAULT_CHUNK_BYTES = 48 * 2**20
 
 #: The `cache.toml` keys of the layouts there used to be a choice between, before every output became
 #: a Zarr store. They are read and ignored, with a warning, so a cache that still declares one keeps

@@ -319,7 +319,7 @@ def test_the_chunk_size_is_checked(tmp_path):
         dandi_cache.parse_config({"cache": {"name": "my-cache", "chunk_bytes": 5}}, directory=tmp_path)
     with pytest.raises(ValueError, match="limit"):
         dandi_cache.parse_config({"cache": {"name": "my-cache", "chunk_bytes": 10**9}}, directory=tmp_path)
-    assert dandi_cache.parse_config({"cache": {"name": "my-cache"}}, directory=tmp_path).chunk_bytes == 48 * 1024 * 1024
+    assert dandi_cache.parse_config({"cache": {"name": "my-cache"}}, directory=tmp_path).chunk_bytes == 48 * 2**20
 
 
 @pytest.mark.ai_generated
@@ -328,4 +328,4 @@ def test_a_layout_key_from_before_every_output_was_a_store_is_ignored_with_a_war
     with pytest.warns(UserWarning, match=f"`cache.{key}` is ignored"):
         config = dandi_cache.parse_config({"cache": {"name": "my-cache", key: ["my_cache.jsonl"]}}, directory=tmp_path)
 
-    assert config.chunk_bytes == 48 * 1024 * 1024
+    assert config.chunk_bytes == 48 * 2**20
