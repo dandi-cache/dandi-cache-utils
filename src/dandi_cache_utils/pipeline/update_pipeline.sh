@@ -281,10 +281,12 @@ fi
 # runner, so `datalad rerun` could not work from a clone of `derivatives`. Now that clone holds all
 # of it: the input subdatasets, the image digest, and the exact commit of the cache's own code.
 #
-# Its URL is `.`, which git resolves to this same repository, so the record holds wherever the
-# repository is cloned from. DataLad cannot install from a relative `.` (datalad/datalad#7889), so
-# `datalad-url` names the repository in full for it. The runner's checkout is cloned locally rather
-# than fetched again, at the commit it is at, which is the code this run executes.
+# Its URL is `../<name>.git`, which git resolves against the remote it was cloned from to this same
+# repository, so the record holds on whichever host or fork that is. It is not `.`, which git
+# resolves the same way but GitHub cannot link. DataLad cannot install from a relative URL
+# (datalad/datalad#7889), so `datalad-url` names the repository in full for it. The runner's
+# checkout is cloned locally rather than fetched again, at the commit it is at, which is the code
+# this run executes.
 # ---------------------------------------------------------------------------------------------
 CODE_SHA=$(git -C "${WORKSPACE}" rev-parse HEAD)
 if [ -n "$(git -C "${WORKSPACE}" status --porcelain --untracked-files=no)" ]; then
@@ -296,7 +298,7 @@ git -C workspace checkout --quiet --detach "${CODE_SHA}"
 git -C workspace remote set-url origin "${CACHE_URL}"
 datalad save -d . -m "Record the code this run executes (${CODE_SHA})" workspace
 # Registering it writes DataLad's own idea of the URL, so the URLs are set after, and replace it.
-git config -f .gitmodules --replace-all submodule.workspace.url .
+git config -f .gitmodules --replace-all submodule.workspace.url "../${CACHE_NAME}.git"
 git config -f .gitmodules --replace-all submodule.workspace.datalad-url "${CACHE_URL}"
 datalad save -d . -m "Resolve the code subdataset from this repository" .gitmodules
 
