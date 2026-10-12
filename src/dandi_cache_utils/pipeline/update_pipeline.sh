@@ -380,12 +380,13 @@ push_with_retry "${DS}" derivatives HEAD
 # `derivatives`.
 # ---------------------------------------------------------------------------------------------
 mkdir -p "${DISTDIR}/derivatives"
-# Each declared output, as a compacted store with its chunks gzip-compressed.
+# Each declared output, compacted: one `<stem>.jsonl.gz` where that fits under the size at which
+# GitHub warns about a file, and otherwise a store with its chunks gzip-compressed.
 dandi_cache compress --base-directory "${DS}" --config "${CONFIG_FILE}" --dist-directory "${DISTDIR}"
 
 published=0
-for store in "${DISTDIR}"/derivatives/*.zarr; do
-  if [ -d "${store}" ]; then
+for output in "${DISTDIR}"/derivatives/*.jsonl.gz "${DISTDIR}"/derivatives/*.zarr; do
+  if [ -e "${output}" ]; then
     published=$((published + 1))
   fi
 done
