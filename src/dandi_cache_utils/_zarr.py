@@ -204,7 +204,12 @@ def iter_lines(store: pathlib.Path, /) -> typing.Iterator[str]:
 
 
 def _raw_line_key(raw: bytes, /) -> typing.Any:
-    """The key of a single-key JSON object line, parsing it only when the key needs unescaping."""
+    """The key of a single-key JSON object line, parsing it only when the key needs unescaping.
+
+    A line of an output of bare IDs is its own key, so a repeated ID counts once.
+    """
+    if not raw.startswith(b"{"):
+        return raw
     if raw.startswith(b'{"'):
         end = raw.find(b'"', 2)
         if end != -1 and b"\\" not in raw[2:end]:

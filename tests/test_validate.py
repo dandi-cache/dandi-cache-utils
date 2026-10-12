@@ -30,6 +30,16 @@ def test_a_store_written_by_the_library_has_no_problems(tmp_path, compressed):
 
 
 @pytest.mark.ai_generated
+def test_a_store_of_bare_ids_has_no_problems_and_a_line_of_an_array_does(tmp_path):
+    store = tmp_path / "ids.zarr"
+    _zarr.write_fresh(store, [json.dumps(f"id-{index:04d}") for index in range(300)], chunk_bytes=CHUNK)
+    assert _validate.problems_with_store(store) == []
+
+    _zarr.append_lines(store, [json.dumps(["not", "an", "id"])], chunk_bytes=CHUNK)
+    assert any("JSON array" in problem for problem in _validate.problems_with_store(store))
+
+
+@pytest.mark.ai_generated
 def test_stores_are_found_below_a_directory(tmp_path):
     store = make_store(tmp_path / "derivatives")
     assert _validate.find_stores(tmp_path) == [store]
