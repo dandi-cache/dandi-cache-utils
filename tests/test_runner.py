@@ -139,6 +139,24 @@ def test_an_update_records_only_what_is_new(dataset):
 
 
 @pytest.mark.ai_generated
+@pytest.mark.parametrize("in_memory", [True, False])
+def test_a_run_logs_how_much_of_its_candidates_is_recorded(dataset, caplog, in_memory):
+    caplog.set_level("INFO")
+    dandi_cache.run_incremental_update(
+        dataset, candidates=["a", "b", "c", "d"], process=len, limit=1, in_memory=in_memory
+    )
+    dandi_cache.run_incremental_update(
+        dataset, candidates=["a", "b", "c", "d"], process=len, limit=1, in_memory=in_memory
+    )
+
+    progress = [record.getMessage() for record in caplog.records if record.getMessage().startswith("Progress")]
+    assert progress == [
+        "Progress: 1 of 4 candidates recorded (25.0%).",
+        "Progress: 2 of 4 candidates recorded (50.0%).",
+    ]
+
+
+@pytest.mark.ai_generated
 def test_a_limit_bounds_the_batch(dataset):
     _records, result = dandi_cache.run_incremental_update(
         dataset,
