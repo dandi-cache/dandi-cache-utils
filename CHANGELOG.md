@@ -36,7 +36,7 @@
   Only `process` runs in the threads; recording results, logging, `on_error`, `on_write` and checkpoints stay on the calling thread. `ErrorLog` appends are now locked, so concurrent failures cannot interleave in one log. ([#26](https://github.com/dandi-cache/dandi-cache-utils/pull/26))
 - A run recorded on `derivatives` can be re-executed from a clone of `derivatives` alone ([dandi-cache/cache-template#31](https://github.com/dandi-cache/cache-template/issues/31)).
   The cache's own code is recorded there as the `workspace` subdataset, at the commit the run executes, and the run mounts it from there rather than from the runner's `$WORKSPACE` checkout, which `datalad rerun` could never reach.
-  Its `url` is `.`, which git resolves to the same repository; `datalad-url` names it in full, since DataLad cannot install from `.` ([datalad/datalad#7889](https://github.com/datalad/datalad/issues/7889)).
+  Its `url` is `../<name>.git`, which git and GitHub resolve to the same repository; `datalad-url` names it in full, since DataLad cannot install from a relative URL ([datalad/datalad#7889](https://github.com/datalad/datalad/issues/7889)).
   It is a declared `--input` of the run, so `datalad rerun` installs it first. A run whose code did not change records nothing new.
 - An output listed in `cache.toml`'s new `split` is kept on `derivatives` as sixteen files, `<stem>_0.jsonl` to `<stem>_f.jsonl`, by the first digit of each key, for one that would pass GitHub's 100 MiB limit on a plain-git branch.
   It is a declaration and nothing more: `read_output_lookup`, `write_output_lookup` and `write_output_records` read and write the sixteen files for such an output, so a cache's code does not change, and the first run after declaring it reads the single file and removes it.
@@ -119,6 +119,12 @@
   Each release also publishes the version as its own tag, so a cache can pin its orchestration to an exact release.
 - Added the `dandi-cache` command (`compress`, `config show`, `config shell`, `dataset-description`), built on `rich-click`, the distribution's one required dependency.
   The optional extras stay out of the import graph: `api`, `nwb` and `s3` import theirs inside the functions that use them, so a cache on the `:latest` image never pays for the NWB stack.
+
+### 🐛 Bug Fix
+
+- The `workspace` subdataset on `derivatives` now links to the cache's own repository on GitHub.
+  Its `url` was `.`, which git resolves but GitHub cannot, so GitHub showed `workspace @ <commit>` as plain text.
+  It is now `../<name>.git`, which both resolve to the same repository, and every cache's next run rewrites it. ([#PR](https://github.com/dandi-cache/dandi-cache-utils/pull/PR))
 
 ### 🏠 Internal
 
