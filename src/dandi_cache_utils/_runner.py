@@ -204,10 +204,11 @@ def run_incremental_update(
         unwritten.clear()
         return file_path
 
+    universe = None if candidates is None else list(candidates)
     batch = (
         list(batch)
-        if candidates is None
-        else select_new(candidates, selection_basis, limit=limit, retry_when=selection_retry)
+        if universe is None
+        else select_new(universe, selection_basis, limit=limit, retry_when=selection_retry)
     )
 
     limit_mib = memory_limit_mib if memory_limit_mib is not None else _default_memory_limit_mib()
@@ -310,6 +311,17 @@ def run_incremental_update(
             result.failed,
             result.elapsed_minutes,
             peak_memory_mib(),
+        )
+    if universe is not None:
+        # One line a reader such as the cache dashboard can parse: how much of the cache's candidate set is
+        # recorded now. A recorded failure counts, as the item has been tried.
+        candidate_set = set(universe)
+        done = sum(1 for item in candidate_set if item in selection_basis or item in records)
+        logger.info(
+            "Progress: %s of %s candidates recorded (%.1f%%).",
+            f"{done:,}",
+            f"{len(candidate_set):,}",
+            100 * done / len(candidate_set) if candidate_set else 100.0,
         )
     return records, result
 

@@ -23,6 +23,7 @@
 
 ### 🚀 Enhancement
 
+- `run_incremental_update` given `candidates` ends with a `Progress: <recorded> of <candidates> candidates recorded (<percent>%).` line in its log, which the cache dashboard reads to show how much of each cache is done.
 - `dandi-cache validate DIRECTORY... [--with-zarr-python]` checks every Zarr store below the directories (metadata, chunks being whole lines of JSON, padding) and fails if any is malformed. With `--with-zarr-python` it also has `zarr` 3 decode every chunk in a throwaway environment and compares with the files' bytes. The pipeline runs it on `derivatives` before pushing it and on `dist` before publishing, so every cache's stores are checked on every run (a cross-check that cannot run fails the run), and a `ZarrCompatibility` CI job runs the tests that need `zarr` 3.
 - `run_incremental_update` stops a batch early, and writes what it has, once the process's peak memory passes `memory_limit_mib`, which defaults to three quarters of the memory the machine or its container has (`math.inf` turns it off); `BatchResult.stopped_for_memory` says it happened.
   A batch of `content-id-to-valid-nwb-file` grew to 10 GB inspecting files in one process, stalled, and was killed on a 16 GB runner, and a killed run publishes nothing, so the 2200 results it had checkpointed were lost.
