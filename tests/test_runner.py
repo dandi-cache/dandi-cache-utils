@@ -718,6 +718,31 @@ def test_a_batch_that_outgrows_its_memory_limit_stops_early_and_keeps_what_it_di
 
 
 @pytest.mark.ai_generated
+def test_a_batch_that_runs_past_its_time_limit_stops_early_and_keeps_what_it_did(dataset):
+    records, result = dandi_cache.run_incremental_update(
+        dataset,
+        candidates=[f"{i:02d}" for i in range(10)],
+        process=lambda item: True,
+        time_limit_minutes=0,
+    )
+
+    assert result.stopped_for_time
+    assert result.considered == 10
+    assert sorted(records) == ["00"]
+    assert dataset.read_output_lookup() == records
+
+
+@pytest.mark.ai_generated
+def test_a_batch_within_its_time_limit_runs_to_the_end(dataset):
+    records, result = dandi_cache.run_incremental_update(
+        dataset, candidates=["a", "b", "c"], process=lambda item: True, time_limit_minutes=math.inf
+    )
+
+    assert not result.stopped_for_time
+    assert sorted(records) == ["a", "b", "c"]
+
+
+@pytest.mark.ai_generated
 def test_the_memory_limit_can_be_turned_off(dataset, monkeypatch):
     monkeypatch.setattr("dandi_cache_utils._runner.peak_memory_mib", lambda: 10**9)
 

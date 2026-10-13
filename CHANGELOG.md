@@ -23,6 +23,7 @@
 
 ### 🚀 Enhancement
 
+- `run_incremental_update` stops a batch early, and writes what it has, once it has run for `time_limit_minutes` (240 by default, `math.inf` turns it off); `BatchResult.stopped_for_time` says it happened. A batch of `valid-nwb-file-to-array-sizes` that ran into twenty-minute read timeouts item after item was killed at the job's 330-minute limit and published nothing, not even the failures that would have let the next run move past those items.
 - `run_incremental_update` given `candidates` ends with a `Progress: <recorded> of <candidates> candidates recorded (<percent>%).` line in its log, which the cache dashboard reads to show how much of each cache is done.
   `log_progress(done, total)` logs the same line, for a cache that selects its own batch or reads its whole source every run.
 - `dandi-cache validate DIRECTORY... [--with-zarr-python]` checks every Zarr store below the directories (metadata, chunks being whole lines of JSON, padding) and fails if any is malformed. With `--with-zarr-python` it also has `zarr` 3 decode every chunk in a throwaway environment and compares with the files' bytes. The pipeline runs it on `derivatives` before pushing it and on `dist` before publishing, so every cache's stores are checked on every run (a cross-check that cannot run fails the run), and a `ZarrCompatibility` CI job runs the tests that need `zarr` 3.
