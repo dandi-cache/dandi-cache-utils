@@ -46,6 +46,11 @@ RETRY = "retry"
 #: Returned by an operation to mean "there is nothing to record for this item".
 NOTHING = object()
 
+#: How long a batch may run before it stops and writes what it has, by default. An update job is
+#: given 330 minutes, and a run killed at that limit publishes nothing, so this leaves an hour and a
+#: half for setting up, for the items still in flight to finish, and for validating and publishing.
+DEFAULT_TIME_LIMIT_MINUTES = 240
+
 
 @dataclasses.dataclass
 class BatchResult:
@@ -57,6 +62,7 @@ class BatchResult:
     failed: int = 0
     elapsed_seconds: float = 0.0
     stopped_for_memory: bool = False
+    stopped_for_time: bool = False
 
     @property
     def elapsed_minutes(self) -> float:
@@ -131,6 +137,7 @@ def run_incremental_update(
     workers: int = 1,
     in_memory: bool = True,
     memory_limit_mib: float | None = None,
+    time_limit_minutes: float = DEFAULT_TIME_LIMIT_MINUTES,
 ) -> tuple[dict, BatchResult]:
     """Process a batch of items and write the updated cache.
 
@@ -170,6 +177,13 @@ def run_incremental_update(
     the 2200 results it had checkpointed. `BatchResult.stopped_for_memory` says it happened. The
     limit saves the work, but the growth is still the cache's to fix, usually by running each item
     in a child with `run_isolated`.
+
+    It also stops early, and writes what it has, once it has run for `time_limit_minutes` -- 240 by
+    default, and `math.inf` turns it off. A batch of items that each run into their own timeout can
+    otherwise outlast the job: a batch of `valid-nwb-file-to-array-sizes` got through 572 of 853
+    items in five and a half hours, nearly all of them twenty-minute read timeouts, was killed at the
+    job's limit, and published nothing, so not even its recorded failures were kept and the next run
+    would have chosen the same items. `BatchResult.stopped_for_time` says it happened.
 
     Returns the full `{item: value}` mapping and a `BatchResult` describing the batch.
     """
@@ -278,6 +292,18 @@ def run_incremental_update(
                 if on_write is not None:
                     on_write()
                 logger.info("%s: checkpointed %d new records.", progress, len(records))
+
+            if time.monotonic() - batch_start_time >= 60 * time_limit_minutes:
+                result.stopped_for_time = True
+                logger.warning(
+                    "%s: the batch has run for its %.0f-minute limit, so it stops after %d of %d items and "
+                    "writes what it has, rather than being killed with the job and losing it.",
+                    progress,
+                    time_limit_minutes,
+                    index,
+                    len(batch),
+                )
+                break
 
             if peak_memory_mib() > limit_mib:
                 result.stopped_for_memory = True
