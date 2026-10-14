@@ -32,7 +32,8 @@ The file stem, the image reference, the output file name, and each input's URL, 
 |---|---|---|
 | `name` | *required* | The hyphenated repository name. |
 | `file_stem` | the underscored `name` | The stem of the default output file. |
-| `image` | `ghcr.io/dandi-cache/<name>` | This cache's runtime image. |
+| `archive` | `"dandi"` | The archive the cache describes: `"dandi"`, or `"ember"` for the [EMBER archive](https://emberarchive.org), which runs the same software with its own bucket and API. It decides the bucket and API that `dandi_cache_utils.s3` and `dandi_cache_utils.api` read, and the GitHub organization (`dandi-cache` or `ember-cache`) the cache, its image and its inputs are found in. |
+| `image` | `ghcr.io/<organization>/<name>` | This cache's runtime image. |
 | `outputs` | `["<file_stem>.jsonl"]` | Every output published to `dist`, by the `.jsonl` name the cache's code addresses it by; each is kept as the Zarr store `<name>.zarr`. Declaring them is what keeps a `testing_` artifact from reaching consumers. |
 | `chunk_bytes` | `50331648` (48 MiB) | The size of each chunk file of an output's Zarr store, which is also the longest record it can hold. See below. |
 
@@ -70,7 +71,7 @@ Each is registered as a DataLad subdataset and pinned with `--input` in every ru
 | Key | Default | Meaning |
 |---|---|---|
 | `name` | *required* | The upstream cache's repository name. |
-| `url` | `https://github.com/dandi-cache/<name>.git` | Where to clone it from. |
+| `url` | `https://github.com/<organization>/<name>.git` | Where to clone it from: the organization of the cache's own `archive`. |
 | `path` | `sourcedata/<name>` | Where it is registered in the dataset. |
 | `branch` | `derivatives` | The branch the upstream publishes on. |
 | `file_name` | `<underscored name>.jsonl` | The file to read within it. |

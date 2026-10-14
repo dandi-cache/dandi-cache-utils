@@ -131,3 +131,87 @@ def test_an_unexpected_error_still_fails_the_run(client):
 def test_the_content_id_comes_from_the_second_url(content_urls, expected):
     """Reading the wrong segment does not fail, it labels every Zarr asset with a filename."""
     assert s3.content_id_from_content_urls(content_urls) == expected
+
+
+class RecordingClient(StubClient):
+    """A stub that also records which bucket each call named."""
+
+    def __init__(self, objects):
+        super().__init__(objects)
+        self.buckets = []
+
+    def paginate(self, *, Bucket, Prefix, Delimiter=None):  # noqa: N803
+        self.buckets.append(Bucket)
+        yield from super().paginate(Bucket=Bucket, Prefix=Prefix, Delimiter=Delimiter)
+
+    def get_object(self, *, Bucket, Key):  # noqa: N803
+        self.buckets.append(Bucket)
+        return super().get_object(Bucket=Bucket, Key=Key)
+
+
+@pytest.fixture
+def ember():
+    """EMBER selected for the one test, and DANDI again after it, whatever the test does."""
+    from dandi_cache_utils import _archive
+
+    yield _archive.select("ember")
+    _archive.select("dandi")
+
+
+def test_dandi_is_read_until_another_archive_is_selected():
+    assert s3.BUCKET == "dandiarchive"
+    assert s3.REGION == "us-east-2"
+    assert s3.blob_url("1fe3a03c") == "https://dandiarchive.s3.amazonaws.com/blobs/1fe/3a0/1fe3a03c"
+
+
+def test_every_read_follows_the_selected_archive(ember):
+    """EMBER lays its bucket out as DANDI does, so only the bucket's name and region change."""
+    client = RecordingClient({"dandisets/000005/draft/assets.jsonld": manifest({"path": "a.nwb"})})
+
+    assert list(s3.dandiset_ids(client)) == ["000005"]
+    assert list(s3.asset_manifest_keys(client)) == ["dandisets/000005/draft/assets.jsonld"]
+    assert s3.dandiset_assets(client, "000005") == [{"path": "a.nwb"}]
+
+    assert set(client.buckets) == {"ember-open-data"}
+    assert s3.BUCKET == "ember-open-data"
+    assert s3.REGION == "us-east-1"
+    assert s3.blob_url("1fe3a03c") == "https://ember-open-data.s3.amazonaws.com/blobs/1fe/3a0/1fe3a03c"
+
+
+def test_an_explicit_bucket_still_wins(ember):
+    client = RecordingClient({"key": b"{}"})
+
+    s3.get_json(client, "key", bucket="elsewhere")
+
+    assert client.buckets == ["elsewhere"]
+
+
+def test_opening_a_cache_selects_its_archive(tmp_path):
+    """Opening the dataset is what points the helpers at the archive, so a cache never names it."""
+    import dandi_cache_utils as dandi_cache
+    from dandi_cache_utils import _archive
+
+    (tmp_path / "cache.toml").write_text('[cache]\nname = "my-cache"\narchive = "ember"\n')
+    try:
+        dandi_cache.CacheDataset.open(tmp_path, config=dandi_cache.read_config(tmp_path / "cache.toml"))
+        assert s3.BUCKET == "ember-open-data"
+    finally:
+        _archive.select("dandi")
+
+
+def test_the_api_client_follows_the_selected_archive(ember, monkeypatch):
+    """A stand-in for the DANDI client, which is all the test needs to see the URL it is given."""
+    import sys
+    import types
+
+    from dandi_cache_utils import api
+
+    class FakeClient:
+        def __init__(self, *, api_url):
+            self.api_url = api_url
+
+    dandiapi = types.SimpleNamespace(DandiAPIClient=FakeClient)
+    monkeypatch.setitem(sys.modules, "dandi", types.SimpleNamespace(dandiapi=dandiapi))
+    monkeypatch.setitem(sys.modules, "dandi.dandiapi", dandiapi)
+
+    assert api.client().api_url == "https://api-dandi.emberarchive.org/api"

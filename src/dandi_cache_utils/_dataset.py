@@ -20,7 +20,7 @@ import json
 import pathlib
 import typing
 
-from . import _jsonl, _zarr
+from . import _archive, _jsonl, _zarr
 from ._config import DEFAULT_OPERATION, SPLIT_FILE_COUNTS, CacheConfig, InputCache, load_config, split_names
 from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
@@ -47,9 +47,15 @@ class CacheDataset:
         config: CacheConfig | None = None,
         operation: str = DEFAULT_OPERATION,
     ) -> "CacheDataset":
-        """Open the dataset at `base_directory`, loading `cache.toml` if one was not supplied."""
+        """Open the dataset at `base_directory`, loading `cache.toml` if one was not supplied.
+
+        This is also where the S3 helpers and the API client are pointed at the archive the cache
+        describes, so a cache's own code reads from the right bucket without naming it.
+        """
+        config = config if config is not None else load_config()
+        _archive.select(config.archive)
         return cls(
-            config=config if config is not None else load_config(),
+            config=config,
             base_directory=pathlib.Path(base_directory),
             testing=testing,
             operation=operation,

@@ -23,9 +23,64 @@ import warnings
 
 CONFIG_FILE_NAME = "cache.toml"
 
-# Every cache in the organization lives here and publishes its runtime image here, so both are
-# derived from the cache name rather than repeated in each `cache.toml`.
-ORGANIZATION = "dandi-cache"
+
+@dataclasses.dataclass(frozen=True)
+class Archive:
+    """Where one archive keeps its data and its caches.
+
+    EMBER runs the DANDI archive software with its own bucket and API, and lays the bucket out the
+    same way, so a cache of it is a DANDI cache pointed somewhere else. What differs is collected
+    here, once, and a cache names its archive with `cache.archive`; one that names none describes
+    DANDI.
+    """
+
+    name: str
+    #: The GitHub organization its caches live in and publish their runtime images under.
+    organization: str
+    bucket: str
+    region: str
+    api_url: str
+
+    @property
+    def public_base_url(self) -> str:
+        """The public HTTPS root of the bucket, for streaming readers."""
+        return f"https://{self.bucket}.s3.amazonaws.com"
+
+
+ARCHIVES = {
+    archive.name: archive
+    for archive in (
+        Archive(
+            name="dandi",
+            organization="dandi-cache",
+            bucket="dandiarchive",
+            region="us-east-2",
+            api_url="https://api.dandiarchive.org/api",
+        ),
+        Archive(
+            name="ember",
+            organization="ember-cache",
+            bucket="ember-open-data",
+            region="us-east-1",
+            api_url="https://api-dandi.emberarchive.org/api",
+        ),
+    )
+}
+DEFAULT_ARCHIVE = "dandi"
+
+
+def archive(name: str, /) -> Archive:
+    """The archive called `name`, with a helpful error listing the known ones."""
+    if name not in ARCHIVES:
+        known = ", ".join(sorted(ARCHIVES))
+        raise ValueError(f"`cache.archive` is {name!r}; expected one of: {known}.")
+    return ARCHIVES[name]
+
+
+# Every cache of an archive lives in that archive's organization and publishes its runtime image
+# there, so both are derived from the cache name and its `archive` rather than repeated in each
+# `cache.toml`. This library itself lives in DANDI's.
+ORGANIZATION = ARCHIVES[DEFAULT_ARCHIVE].organization
 REPOSITORY_URL_TEMPLATE = "https://github.com/{organization}/{name}.git"
 IMAGE_TEMPLATE = "ghcr.io/{organization}/{name}"
 
@@ -126,8 +181,21 @@ class CacheConfig:
     #: it can hold. See `dandi_cache_utils._zarr`.
     chunk_bytes: int = DEFAULT_CHUNK_BYTES
 
+    #: The archive the cache describes, which decides the bucket, the API and the organization.
+    archive: str = DEFAULT_ARCHIVE
+
     #: The repository root, when the config was read from a file; used as the default base directory.
     directory: pathlib.Path | None = None
+
+    @property
+    def organization(self) -> str:
+        """The GitHub organization this cache, and every cache it reads, lives in."""
+        return archive(self.archive).organization
+
+    @property
+    def url(self) -> str:
+        """This cache's own repository."""
+        return REPOSITORY_URL_TEMPLATE.format(organization=self.organization, name=self.name)
 
     @property
     def cache_file_name(self) -> str:
@@ -163,7 +231,7 @@ def _require_mapping(value: typing.Any, /, *, where: str) -> dict:
     return value
 
 
-def _parse_input(raw: dict, /) -> InputCache:
+def _parse_input(raw: dict, /, *, organization: str) -> InputCache:
     name = raw.get("name")
     if not name:
         raise ValueError(f"Every `[[inputs]]` entry in {CONFIG_FILE_NAME} requires a `name`.")
@@ -175,7 +243,7 @@ def _parse_input(raw: dict, /) -> InputCache:
 
     return InputCache(
         name=name,
-        url=raw.get("url", REPOSITORY_URL_TEMPLATE.format(organization=ORGANIZATION, name=name)),
+        url=raw.get("url", REPOSITORY_URL_TEMPLATE.format(organization=organization, name=name)),
         path=raw.get("path", f"sourcedata/{name}"),
         branch=raw.get("branch", DEFAULT_INPUT_BRANCH),
         file_name=raw.get("file", f'{name.replace("-", "_")}.jsonl'),
@@ -240,7 +308,7 @@ LIBRARY_NAME = "dandi-cache-utils"
 LIBRARY_URL = f"https://github.com/{ORGANIZATION}/{LIBRARY_NAME}"
 
 
-def _parse_description(raw: dict, /, *, name: str, inputs: tuple) -> dict:
+def _parse_description(raw: dict, /, *, name: str, inputs: tuple, organization: str) -> dict:
     """Build the BIDS `dataset_description.json` contents from the `[description]` table.
 
     Generating it from `cache.toml` is what lets a cache repository drop the hand-maintained file
@@ -264,7 +332,7 @@ def _parse_description(raw: dict, /, *, name: str, inputs: tuple) -> dict:
     if raw.get("keywords"):
         description["Keywords"] = list(raw["keywords"])
     description["ReferencesAndLinks"] = list(
-        raw.get("references", [f"https://github.com/{ORGANIZATION}/{name}"]),
+        raw.get("references", [f"https://github.com/{organization}/{name}"]),
     )
     if inputs:
         description["SourceDatasets"] = [{"URL": input_cache.url} for input_cache in inputs]
@@ -321,7 +389,12 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
             "bytes for one file."
         )
 
-    inputs = tuple(_parse_input(entry) for entry in raw.get("inputs", []))
+    archive_name = cache.get("archive", DEFAULT_ARCHIVE)
+    if not isinstance(archive_name, str):
+        raise TypeError(f"`cache.archive` must be a string, got {type(archive_name).__name__}.")
+    organization = archive(archive_name).organization
+
+    inputs = tuple(_parse_input(entry, organization=organization) for entry in raw.get("inputs", []))
     input_paths = [input_cache.path for input_cache in inputs]
     if len(set(input_paths)) != len(input_paths):
         raise ValueError(f"{name} declares two inputs at the same `path`; each needs its own `sourcedata/` location.")
@@ -329,7 +402,7 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
     return CacheConfig(
         name=name,
         file_stem=file_stem,
-        image=cache.get("image", IMAGE_TEMPLATE.format(organization=ORGANIZATION, name=name)),
+        image=cache.get("image", IMAGE_TEMPLATE.format(organization=organization, name=name)),
         outputs=outputs,
         chunk_bytes=chunk_bytes,
         inputs=inputs,
@@ -338,7 +411,9 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
             _require_mapping(raw.get("description", {}), where="description"),
             name=name,
             inputs=inputs,
+            organization=organization,
         ),
+        archive=archive_name,
         directory=directory,
     )
 
@@ -418,7 +493,7 @@ def as_shell(config: CacheConfig, /, *, operation: str = DEFAULT_OPERATION) -> s
         f"CACHE_NAME={shlex.quote(config.name)}",
         f"CACHE_FILE_STEM={shlex.quote(config.file_stem)}",
         f"CACHE_IMAGE={shlex.quote(config.image)}",
-        f"CACHE_URL={shlex.quote(REPOSITORY_URL_TEMPLATE.format(organization=ORGANIZATION, name=config.name))}",
+        f"CACHE_URL={shlex.quote(config.url)}",
         _shell_array("CACHE_OUTPUTS", config.outputs),
         _shell_array("INPUT_PATHS", [input_cache.path for input_cache in config.inputs]),
         _shell_array("INPUT_URLS", [input_cache.url for input_cache in config.inputs]),
