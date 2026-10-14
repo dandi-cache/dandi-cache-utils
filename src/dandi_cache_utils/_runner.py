@@ -210,8 +210,17 @@ def run_incremental_update(
         selection_retry = None if retry_when is None else bool
 
     unwritten: list = []
+    # A `recorded` mapping is the caller's, and the caller may have changed it before handing it over:
+    # added entries that cost no processing, corrected some, dropped what its source no longer lists.
+    # Appending only this batch's results would silently lose all of that, so the first write records
+    # the whole mapping, appending what differs and rewriting the output only if an entry was dropped.
+    reconcile = [recorded is not None]
 
     def write_records() -> pathlib.Path:
+        if reconcile[0]:
+            reconcile[0] = False
+            unwritten.clear()
+            return dataset.write_output_lookup(records, output)
         # Only what this batch added since the last write is appended, whether or not the whole cache is
         # held in memory: an output only ever grows, so nothing already in it is rewritten.
         file_path = dataset.merge_output_lookup({key: records[key] for key in unwritten}, output)
