@@ -17,6 +17,7 @@ import dataclasses
 import pathlib
 
 from . import s3
+from ._config import configured_archive
 
 #: What this module offers on `<TAB>`. Everything here is defined below; the module's own
 #: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
@@ -145,7 +146,7 @@ def open_zarr(content_id: str, /):
     import zarr
 
     filesystem = s3fs.S3FileSystem(anon=True)
-    store = s3fs.S3Map(root=f"{s3.BUCKET}/{s3.zarr_key(content_id)}", s3=filesystem, check=False)
+    store = s3fs.S3Map(root=f"{configured_archive().bucket}/{s3.zarr_key(content_id)}", s3=filesystem, check=False)
     try:
         return zarr.open_consolidated(store=store, mode="r")
     except KeyError:

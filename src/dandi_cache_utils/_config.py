@@ -12,6 +12,7 @@ adding a third-party import here would break the orchestration.
 """
 
 import dataclasses
+import functools
 import itertools
 import os
 import pathlib
@@ -111,6 +112,47 @@ class Operation:
 
 
 @dataclasses.dataclass(frozen=True)
+class Archive:
+    """One DANDI instance: the public bucket that holds its assets and manifests, and its REST API.
+
+    Every instance runs the same archive software, so the bucket layout (`blobs/`, `zarr/`, and
+    `dandisets/<id>/<version>/assets.jsonld`) is shared. Only where it lives differs.
+    """
+
+    name: str
+    bucket: str
+    region: str
+    api_url: str
+
+    @property
+    def public_base_url(self) -> str:
+        """The bucket's public HTTPS endpoint, for streaming readers."""
+        return f"https://{self.bucket}.s3.amazonaws.com"
+
+
+#: The instances a cache can name with `[archive] name = ...` alone, under the names `dandi-cli` gives them.
+ARCHIVES = {
+    "dandi": Archive(
+        name="dandi",
+        bucket="dandiarchive",
+        region="us-east-2",
+        api_url="https://api.dandiarchive.org/api",
+    ),
+    "ember-dandi": Archive(
+        name="ember-dandi",
+        bucket="ember-open-data",
+        region="us-east-1",
+        api_url="https://api-dandi.emberarchive.org/api",
+    ),
+}
+
+#: What a cache that declares no `[archive]` describes, which is every cache that predates the table.
+DEFAULT_ARCHIVE = "dandi"
+
+_ARCHIVE_LOCATION_KEYS = ("bucket", "region", "api_url")
+
+
+@dataclasses.dataclass(frozen=True)
 class CacheConfig:
     """The full declarative description of one cache repository."""
 
@@ -125,6 +167,8 @@ class CacheConfig:
     #: The size in bytes of each chunk file of an output's Zarr store, which is also the longest record
     #: it can hold. See `dandi_cache_utils._zarr`.
     chunk_bytes: int = DEFAULT_CHUNK_BYTES
+    #: The DANDI instance this cache describes. DANDI itself unless `[archive]` names another.
+    archive: Archive = ARCHIVES[DEFAULT_ARCHIVE]
 
     #: The repository root, when the config was read from a file; used as the default base directory.
     directory: pathlib.Path | None = None
@@ -230,6 +274,51 @@ def _parse_operations(raw: dict, /, *, cache_name: str) -> dict[str, Operation]:
     return operations
 
 
+def _parse_archive(raw: dict, /) -> Archive:
+    """The instance the `[archive]` table names, or DANDI when there is no table.
+
+    A known instance is named alone, as `name = "ember-dandi"`. Any other is described in full, with a
+    `name` of its own and all of `bucket`, `region` and `api_url`. Overriding part of a known
+    instance is refused rather than merged, because a bucket of one archive paired with the API of
+    another resolves content IDs against the wrong Dandisets without failing.
+    """
+    if not raw:
+        return ARCHIVES[DEFAULT_ARCHIVE]
+
+    unknown = sorted(set(raw) - {"name", *_ARCHIVE_LOCATION_KEYS})
+    if unknown:
+        raise ValueError(f"`[archive]` in {CONFIG_FILE_NAME} has unknown keys: {', '.join(unknown)}.")
+
+    name = raw.get("name")
+    if not name or not isinstance(name, str):
+        raise ValueError(f"`[archive]` in {CONFIG_FILE_NAME} requires a `name`.")
+
+    given = [key for key in _ARCHIVE_LOCATION_KEYS if key in raw]
+    if not given:
+        if name not in ARCHIVES:
+            known = ", ".join(sorted(ARCHIVES))
+            raise ValueError(
+                f"`[archive]` names {name!r}, which is not a known instance ({known}). "
+                f"Describe it with all of {', '.join(_ARCHIVE_LOCATION_KEYS)}."
+            )
+        return ARCHIVES[name]
+
+    if name in ARCHIVES:
+        raise ValueError(
+            f"`[archive]` names the known instance {name!r} and also sets {', '.join(given)}. "
+            "Name a known instance alone, or give a new instance a name of its own."
+        )
+    missing = [key for key in _ARCHIVE_LOCATION_KEYS if key not in raw]
+    if missing:
+        raise ValueError(f"`[archive]` describes {name!r} but lacks {', '.join(missing)}.")
+    for key in _ARCHIVE_LOCATION_KEYS:
+        if not isinstance(raw[key], str) or not raw[key]:
+            raise ValueError(f"`archive.{key}` must be a non-empty string, got {raw[key]!r}.")
+
+    archive = Archive(name=name, bucket=raw["bucket"], region=raw["region"], api_url=raw["api_url"].rstrip("/"))
+    return archive
+
+
 #: The current BIDS release, which every cache declares unless it says otherwise, so that the
 #: family moves forward together rather than one repository at a time.
 DEFAULT_BIDS_VERSION = "1.11.1"
@@ -332,6 +421,7 @@ def parse_config(raw: dict, /, *, directory: pathlib.Path | None = None) -> Cach
         image=cache.get("image", IMAGE_TEMPLATE.format(organization=ORGANIZATION, name=name)),
         outputs=outputs,
         chunk_bytes=chunk_bytes,
+        archive=_parse_archive(_require_mapping(raw.get("archive", {}), where="archive")),
         inputs=inputs,
         operations=_parse_operations(_require_mapping(raw.get("operations", {}), where="operations"), cache_name=name),
         description=_parse_description(
@@ -402,6 +492,23 @@ def read_config(file_path: pathlib.Path | str, /) -> CacheConfig:
         raise type(exception)(f"{file_path}: {exception}") from exception
 
 
+@functools.cache
+def configured_archive() -> Archive:
+    """The instance the running cache describes, as its `cache.toml` declares it.
+
+    This is what the archive readers in `s3`, `api` and `nwb` use when they are not told otherwise,
+    so a cache of another instance needs its `[archive]` table and nothing in `code/update.py`. The
+    `cache.toml` is found as `load_config` finds it. Outside any cache there is none to find, and
+    the answer is DANDI. It is read once per process, since the readers ask on every request.
+    """
+    try:
+        file_path = find_config()
+    except FileNotFoundError:
+        return ARCHIVES[DEFAULT_ARCHIVE]
+    archive = read_config(file_path).archive
+    return archive
+
+
 def _shell_array(name: str, values: typing.Iterable[str], /) -> str:
     quoted = " ".join(shlex.quote(value) for value in values)
     return f"{name}=({quoted})"
@@ -438,6 +545,7 @@ def describe(config: CacheConfig, /) -> str:
         f"image:      {config.image}",
         f"outputs:    {', '.join(config.outputs)}",
         f"chunks:     {config.chunk_bytes:,} bytes per Zarr chunk",
+        f"archive:    {config.archive.name} (s3://{config.archive.bucket}, {config.archive.api_url})",
         f"operations: {', '.join(sorted(config.operations))}",
     ]
     lines.extend(

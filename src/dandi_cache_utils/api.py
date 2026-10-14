@@ -1,4 +1,4 @@
-"""Resolving assets through the DANDI REST API.
+"""Resolving assets through a DANDI instance's REST API.
 
 Three caches independently reimplemented the same three-line resolution, so it lives here once.
 The client is always tokenless: a cache publishes its results publicly, so it must only ever see
@@ -10,6 +10,8 @@ the cache has to go from a Dandiset path to the bytes, or wants asset metadata s
 
 import typing
 
+from ._config import configured_archive
+
 #: What this module offers on `<TAB>`. Everything here is defined below; the module's own
 #: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
 __all__ = [
@@ -19,11 +21,15 @@ __all__ = [
 ]
 
 
-def client():
-    """A tokenless DANDI API client, so only public Dandisets are ever reachable."""
+def client(*, api_url: str | None = None):
+    """A tokenless API client, so only public Dandisets are ever reachable.
+
+    For the running cache's archive, unless `api_url` names another instance's API.
+    """
     import dandi.dandiapi
 
-    return dandi.dandiapi.DandiAPIClient()
+    api_client = dandi.dandiapi.DandiAPIClient(api_url=api_url if api_url is not None else configured_archive().api_url)
+    return api_client
 
 
 class AssetResolver:

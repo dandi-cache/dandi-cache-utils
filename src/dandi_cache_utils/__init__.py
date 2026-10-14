@@ -30,13 +30,16 @@ from . import api, nwb, pipeline, s3
 from ._arguments import build_parser, open_dataset, parse_arguments
 from ._cli import dandi_cache_cli
 from ._config import (
+    ARCHIVES,
     CONFIG_FILE_NAME,
     CONFIG_PATH_VARIABLE,
     GITHUB_FILE_LIMIT_BYTES,
+    Archive,
     CacheConfig,
     InputCache,
     Operation,
     as_shell,
+    configured_archive,
     dataset_description,
     load_config,
     parse_config,
@@ -69,6 +72,8 @@ from ._runner import (
 from ._version import __version__
 
 __all__ = [
+    "ARCHIVES",
+    "Archive",
     "BatchResult",
     "CONFIG_FILE_NAME",
     "CONFIG_PATH_VARIABLE",
@@ -88,6 +93,7 @@ __all__ = [
     "as_shell",
     "dataset_description",
     "build_parser",
+    "configured_archive",
     "configure_logging",
     "dandi_cache_cli",
     "load_config",

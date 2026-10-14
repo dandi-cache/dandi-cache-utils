@@ -1,4 +1,4 @@
-"""Reading the public DANDI archive S3 bucket directly.
+"""Reading a DANDI instance's public S3 bucket directly.
 
 The bucket is content-addressed, so a cache that already holds a content ID can reach the bytes
 without going through the DANDI API at all -- which is both faster and immune to the API's
@@ -11,6 +11,9 @@ The lessons encoded here were paid for in production debugging:
   expected upstream states, not run failures, so they come back as `None` rather than raising.
 - **Size the connection pool to the worker count.** botocore's default pool of 10 makes every
   surplus thread redo the TCP/TLS handshake on each request.
+- **Every instance has its own bucket.** DANDI's is the default, and a cache of another instance
+  declares it once in `cache.toml`'s `[archive]` table. Every reader here takes the bucket from
+  `configured_archive()` unless it is given one, so the cache's own code names no bucket at all.
 - **Prefer JSON over YAML.** Parsing large YAML in pure Python is GIL-bound and does not
   parallelize across threads; the archive publishes `assets.jsonld` next to every `assets.yaml`.
 """
@@ -19,6 +22,8 @@ import concurrent.futures
 import datetime
 import json
 import typing
+
+from ._config import ARCHIVES, DEFAULT_ARCHIVE, configured_archive
 
 #: What this module offers on `<TAB>`. Everything here is defined below; the module's own
 #: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
@@ -48,9 +53,11 @@ __all__ = [
     "zarr_key",
 ]
 
-BUCKET = "dandiarchive"
-REGION = "us-east-2"
-PUBLIC_BASE_URL = f"https://{BUCKET}.s3.amazonaws.com"
+#: DANDI's own bucket. The readers below use the running cache's archive instead, which is this one
+#: only when the cache describes DANDI; see `configured_archive`.
+BUCKET = ARCHIVES[DEFAULT_ARCHIVE].bucket
+REGION = ARCHIVES[DEFAULT_ARCHIVE].region
+PUBLIC_BASE_URL = ARCHIVES[DEFAULT_ARCHIVE].public_base_url
 
 DANDISETS_PREFIX = "dandisets/"
 DANDISET_MANIFEST_KEY = "dandisets/{dandiset_id}/{version}/dandiset.jsonld"
@@ -62,8 +69,11 @@ ASSETS_MANIFEST_SUFFIX = "/assets.jsonld"
 ABSENT_ERROR_CODES = ("AccessDenied", "NoSuchKey", "404")
 
 
-def anonymous_client(*, max_pool_connections: int = 16):
-    """Build an unsigned S3 client sized for `max_pool_connections` concurrent readers."""
+def anonymous_client(*, max_pool_connections: int = 16, region: str | None = None):
+    """Build an unsigned S3 client sized for `max_pool_connections` concurrent readers.
+
+    In the region of the running cache's archive, unless `region` names another.
+    """
     import boto3
     import botocore
     import botocore.config
@@ -73,15 +83,16 @@ def anonymous_client(*, max_pool_connections: int = 16):
         max_pool_connections=max_pool_connections,
         retries={"mode": "standard"},
     )
-    return boto3.client("s3", region_name=REGION, config=config)
+    region_name = region if region is not None else configured_archive().region
+    return boto3.client("s3", region_name=region_name, config=config)
 
 
-def get_object_bytes(client, key: str, /, *, bucket: str = BUCKET) -> bytes | None:
+def get_object_bytes(client, key: str, /, *, bucket: str | None = None) -> bytes | None:
     """Fetch one object's bytes, or `None` when it is deleted or not publicly readable."""
     import botocore.exceptions
 
     try:
-        response = client.get_object(Bucket=bucket, Key=key)
+        response = client.get_object(Bucket=_bucket(bucket), Key=key)
     except botocore.exceptions.ClientError as error:
         error_code = error.response.get("Error", {}).get("Code", "")
         if error_code in ABSENT_ERROR_CODES:
@@ -90,7 +101,7 @@ def get_object_bytes(client, key: str, /, *, bucket: str = BUCKET) -> bytes | No
     return response["Body"].read()
 
 
-def get_json(client, key: str, /, *, bucket: str = BUCKET) -> dict | None:
+def get_json(client, key: str, /, *, bucket: str | None = None) -> dict | None:
     """Fetch and parse one JSON object, or `None` when it is absent or unreadable."""
     body = get_object_bytes(client, key, bucket=bucket)
     if body is None or not body.strip():
@@ -98,12 +109,12 @@ def get_json(client, key: str, /, *, bucket: str = BUCKET) -> dict | None:
     return json.loads(body)
 
 
-def object_exists(client, key: str, /, *, bucket: str = BUCKET) -> bool:
+def object_exists(client, key: str, /, *, bucket: str | None = None) -> bool:
     """Whether an object exists and is readable anonymously."""
     import botocore.exceptions
 
     try:
-        client.head_object(Bucket=bucket, Key=key)
+        client.head_object(Bucket=_bucket(bucket), Key=key)
     except botocore.exceptions.ClientError as error:
         error_code = error.response.get("Error", {}).get("Code", "")
         if error_code in ABSENT_ERROR_CODES:
@@ -117,9 +128,9 @@ def blob_key(content_id: str, /) -> str:
     return f"blobs/{content_id[:3]}/{content_id[3:6]}/{content_id}"
 
 
-def blob_url(content_id: str, /) -> str:
+def blob_url(content_id: str, /, *, bucket: str | None = None) -> str:
     """The public HTTPS URL of a content-addressed blob, for streaming readers."""
-    return f"{PUBLIC_BASE_URL}/{blob_key(content_id)}"
+    return f"https://{_bucket(bucket)}.s3.amazonaws.com/{blob_key(content_id)}"
 
 
 def zarr_key(content_id: str, /) -> str:
@@ -127,12 +138,12 @@ def zarr_key(content_id: str, /) -> str:
     return f"zarr/{content_id}"
 
 
-def dandiset_metadata(client, dandiset_id: str, /, *, version: str = "draft") -> dict | None:
+def dandiset_metadata(client, dandiset_id: str, /, *, version: str = "draft", bucket: str | None = None) -> dict | None:
     """Read a Dandiset's `dandiset.jsonld` metadata, or `None` if it is not readable."""
-    return get_json(client, DANDISET_MANIFEST_KEY.format(dandiset_id=dandiset_id, version=version))
+    return get_json(client, DANDISET_MANIFEST_KEY.format(dandiset_id=dandiset_id, version=version), bucket=bucket)
 
 
-def dandiset_ids(client, /) -> typing.Iterator[str]:
+def dandiset_ids(client, /, *, bucket: str | None = None) -> typing.Iterator[str]:
     """Yield every Dandiset ID under `dandisets/`, in lexicographic (S3 listing) order.
 
     The bucket listing rather than the REST API, for the same reason `dandiset_created` reads S3:
@@ -140,12 +151,14 @@ def dandiset_ids(client, /) -> typing.Iterator[str]:
     silently. Every Dandiset that has ever been published has a folder here.
     """
     paginator = client.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=BUCKET, Prefix=DANDISETS_PREFIX, Delimiter="/"):
+    for page in paginator.paginate(Bucket=_bucket(bucket), Prefix=DANDISETS_PREFIX, Delimiter="/"):
         for entry in page.get("CommonPrefixes", []):
             yield entry["Prefix"].removeprefix(DANDISETS_PREFIX).rstrip("/")
 
 
-def asset_manifest_keys(client, /, *, dandiset_id: str | None = None) -> typing.Iterator[str]:
+def asset_manifest_keys(
+    client, /, *, dandiset_id: str | None = None, bucket: str | None = None
+) -> typing.Iterator[str]:
     """Yield every `assets.jsonld` key, across every version of every Dandiset.
 
     Every version, not only `draft`: an asset that a draft has since dropped is still part of the
@@ -154,13 +167,13 @@ def asset_manifest_keys(client, /, *, dandiset_id: str | None = None) -> typing.
     """
     prefix = DANDISETS_PREFIX if dandiset_id is None else f"{DANDISETS_PREFIX}{dandiset_id}/"
     paginator = client.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=BUCKET, Prefix=prefix):
+    for page in paginator.paginate(Bucket=_bucket(bucket), Prefix=prefix):
         for entry in page.get("Contents", []):
             if entry["Key"].endswith(ASSETS_MANIFEST_SUFFIX):
                 yield entry["Key"]
 
 
-def dandiset_assets(client, key_or_id: str, /, *, version: str = "draft") -> list | None:
+def dandiset_assets(client, key_or_id: str, /, *, version: str = "draft", bucket: str | None = None) -> list | None:
     """Read an assets manifest as its list of asset entries, or `None` when it is not readable.
 
     Takes either a full manifest key, as `asset_manifest_keys` yields, or a Dandiset ID, in which
@@ -175,7 +188,7 @@ def dandiset_assets(client, key_or_id: str, /, *, version: str = "draft") -> lis
         if key_or_id.endswith(ASSETS_MANIFEST_SUFFIX)
         else ASSETS_MANIFEST_KEY.format(dandiset_id=key_or_id, version=version)
     )
-    assets = get_json(client, key)
+    assets = get_json(client, key, bucket=bucket)
     if assets is None:
         return None
     if not isinstance(assets, list):
@@ -200,13 +213,15 @@ def content_id_from_content_urls(content_urls: list[str], /) -> str:
     return s3_download_url.split("/")[-1] if "blobs" in s3_download_url else s3_download_url.split("/")[-2]
 
 
-def dandiset_created(client, dandiset_id: str, /, *, version: str = "draft") -> datetime.datetime | None:
+def dandiset_created(
+    client, dandiset_id: str, /, *, version: str = "draft", bucket: str | None = None
+) -> datetime.datetime | None:
     """A Dandiset's creation time from its S3 manifest, or `None` when it cannot be placed in time.
 
     Read from S3 rather than the REST API on purpose: the API's listing endpoint omits some live
     Dandisets, so a listing-based pass silently loses them.
     """
-    metadata = dandiset_metadata(client, dandiset_id, version=version)
+    metadata = dandiset_metadata(client, dandiset_id, version=version, bucket=bucket)
     if metadata is None:
         return None
 
@@ -241,6 +256,10 @@ def concurrent_map(
         return []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         return list(executor.map(function, items))
+
+
+def _bucket(bucket: str | None, /) -> str:
+    return bucket if bucket is not None else configured_archive().bucket
 
 
 def __dir__() -> list[str]:

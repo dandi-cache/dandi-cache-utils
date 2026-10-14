@@ -81,6 +81,41 @@ The three formats are the three shapes a cache's JSON Lines file takes: `lookup`
 Omit the section entirely for a first-in-chain cache that fetches its own inputs over the network.
 Nothing is then pinned, and the container must be able to reach the upstream source at run time.
 
+### `[archive]`
+
+Which DANDI instance the cache describes.
+Omit it for DANDI itself, which is what every cache without one describes.
+
+A known instance is named alone, under the name `dandi-cli` gives it:
+
+```toml
+[archive]
+name = "ember-dandi"
+```
+
+| Name | Bucket | Region | API |
+|---|---|---|---|
+| `dandi` | `dandiarchive` | `us-east-2` | `https://api.dandiarchive.org/api` |
+| `ember-dandi` | `ember-open-data` | `us-east-1` | `https://api-dandi.emberarchive.org/api` |
+
+Any other instance is described in full, under a name of its own:
+
+```toml
+[archive]
+name = "elsewhere"
+bucket = "elsewhere-open-data"
+region = "us-west-2"
+api_url = "https://api.elsewhere.org/api"
+```
+
+Overriding part of a known instance is refused rather than merged.
+A bucket of one instance paired with the API of another would attribute content to the wrong Dandisets without ever failing.
+
+`code/update.py` names no instance.
+Every reader in {mod}`~dandi_cache_utils.s3`, {mod}`~dandi_cache_utils.api` and {mod}`~dandi_cache_utils.nwb` takes the instance from {func}`~dandi_cache_utils.configured_archive`, which reads it from the running cache's `cache.toml`.
+So a cache of another instance can be the same code as its DANDI counterpart, with only this table added.
+Each reader still accepts an explicit `bucket` (the S3 readers), `region` (`s3.anonymous_client`) or `api_url` (`api.client`) for the rare call that has to reach another instance.
+
 ### `[operations]`
 
 `update` always exists and defaults to `code/update.py`; the example above declares its limits.

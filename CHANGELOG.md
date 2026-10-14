@@ -23,6 +23,8 @@
 
 ### 🚀 Enhancement
 
+- A cache can describe a DANDI instance other than DANDI, such as EMBER, by naming it in a new `[archive]` table of `cache.toml`: `name = "ember-dandi"` for a known instance, or a `name`, `bucket`, `region` and `api_url` for any other.
+  Every reader in `s3`, `api` and `nwb` takes the bucket, region and API URL from `configured_archive()` instead of naming DANDI's, so the same `code/update.py` builds a cache of either instance. A cache without the table still describes DANDI, and `s3.BUCKET`, `s3.REGION` and `s3.PUBLIC_BASE_URL` keep DANDI's values ([#PR](https://github.com/dandi-cache/dandi-cache-utils/pull/PR)).
 - `run_incremental_update` stops a batch early, and writes what it has, once it has run for `time_limit_minutes` (240 by default, `math.inf` turns it off); `BatchResult.stopped_for_time` says it happened. A batch of `valid-nwb-file-to-array-sizes` that ran into twenty-minute read timeouts item after item was killed at the job's 330-minute limit and published nothing, not even the failures that would have let the next run move past those items.
 - `run_incremental_update` given `candidates` ends with a `Progress: <recorded> of <candidates> candidates recorded (<percent>%).` line in its log, which the cache dashboard reads to show how much of each cache is done.
   `log_progress(done, total)` logs the same line, for a cache that selects its own batch or reads its whole source every run.
