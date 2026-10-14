@@ -27,6 +27,40 @@ def test_defaults_are_derived_from_the_cache_name(tmp_path):
 
 
 @pytest.mark.ai_generated
+def test_an_ember_cache_lives_in_the_ember_organization(tmp_path):
+    """The archive decides where the cache, its image and every cache it reads are found."""
+    file_path = write_config(
+        tmp_path,
+        '[cache]\nname = "my-cache"\narchive = "ember"\n\n[[inputs]]\nname = "content-id-to-dandiset-paths"\n',
+    )
+
+    parsed = dandi_cache.read_config(file_path)
+
+    assert parsed.archive == "ember"
+    assert parsed.image == "ghcr.io/ember-cache/my-cache"
+    assert parsed.url == "https://github.com/ember-cache/my-cache.git"
+    assert parsed.only_input.url == "https://github.com/ember-cache/content-id-to-dandiset-paths.git"
+    assert parsed.description["ReferencesAndLinks"] == ["https://github.com/ember-cache/my-cache"]
+    assert "CACHE_URL=https://github.com/ember-cache/my-cache.git" in dandi_cache.as_shell(parsed).splitlines()
+
+
+@pytest.mark.ai_generated
+def test_a_cache_that_names_no_archive_describes_dandi(tmp_path):
+    parsed = dandi_cache.read_config(write_config(tmp_path, '[cache]\nname = "my-cache"\n'))
+
+    assert parsed.archive == "dandi"
+    assert parsed.url == "https://github.com/dandi-cache/my-cache.git"
+
+
+@pytest.mark.ai_generated
+def test_an_unknown_archive_names_the_known_ones(tmp_path):
+    file_path = write_config(tmp_path, '[cache]\nname = "my-cache"\narchive = "elsewhere"\n')
+
+    with pytest.raises(ValueError, match="dandi, ember"):
+        dandi_cache.read_config(file_path)
+
+
+@pytest.mark.ai_generated
 def test_an_input_needs_only_its_name(tmp_path):
     file_path = write_config(
         tmp_path,

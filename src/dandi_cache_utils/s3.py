@@ -1,5 +1,8 @@
 """Reading the public DANDI archive S3 bucket directly.
 
+Or the bucket of whichever archive the cache's `cache.toml` names, such as EMBER's: `BUCKET`,
+`REGION` and `PUBLIC_BASE_URL` follow it, and every helper here reads from it.
+
 The bucket is content-addressed, so a cache that already holds a content ID can reach the bytes
 without going through the DANDI API at all -- which is both faster and immune to the API's
 rate limits and outages.
@@ -20,17 +23,19 @@ import datetime
 import json
 import typing
 
+from . import _archive
+
 #: What this module offers on `<TAB>`. Everything here is defined below; the module's own
 #: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
 __all__ = [
     "ABSENT_ERROR_CODES",
     "ASSETS_MANIFEST_KEY",
     "ASSETS_MANIFEST_SUFFIX",
-    "BUCKET",
+    "BUCKET",  # noqa: F822  (the selected archive's, served by `__getattr__`)
     "DANDISETS_PREFIX",
     "DANDISET_MANIFEST_KEY",
-    "PUBLIC_BASE_URL",
-    "REGION",
+    "PUBLIC_BASE_URL",  # noqa: F822  (the selected archive's, served by `__getattr__`)
+    "REGION",  # noqa: F822  (the selected archive's, served by `__getattr__`)
     "anonymous_client",
     "asset_manifest_keys",
     "blob_key",
@@ -47,10 +52,6 @@ __all__ = [
     "parse_timestamp",
     "zarr_key",
 ]
-
-BUCKET = "dandiarchive"
-REGION = "us-east-2"
-PUBLIC_BASE_URL = f"https://{BUCKET}.s3.amazonaws.com"
 
 DANDISETS_PREFIX = "dandisets/"
 DANDISET_MANIFEST_KEY = "dandisets/{dandiset_id}/{version}/dandiset.jsonld"
@@ -73,15 +74,15 @@ def anonymous_client(*, max_pool_connections: int = 16):
         max_pool_connections=max_pool_connections,
         retries={"mode": "standard"},
     )
-    return boto3.client("s3", region_name=REGION, config=config)
+    return boto3.client("s3", region_name=_archive.current().region, config=config)
 
 
-def get_object_bytes(client, key: str, /, *, bucket: str = BUCKET) -> bytes | None:
+def get_object_bytes(client, key: str, /, *, bucket: str | None = None) -> bytes | None:
     """Fetch one object's bytes, or `None` when it is deleted or not publicly readable."""
     import botocore.exceptions
 
     try:
-        response = client.get_object(Bucket=bucket, Key=key)
+        response = client.get_object(Bucket=bucket or _archive.current().bucket, Key=key)
     except botocore.exceptions.ClientError as error:
         error_code = error.response.get("Error", {}).get("Code", "")
         if error_code in ABSENT_ERROR_CODES:
@@ -90,7 +91,7 @@ def get_object_bytes(client, key: str, /, *, bucket: str = BUCKET) -> bytes | No
     return response["Body"].read()
 
 
-def get_json(client, key: str, /, *, bucket: str = BUCKET) -> dict | None:
+def get_json(client, key: str, /, *, bucket: str | None = None) -> dict | None:
     """Fetch and parse one JSON object, or `None` when it is absent or unreadable."""
     body = get_object_bytes(client, key, bucket=bucket)
     if body is None or not body.strip():
@@ -98,12 +99,12 @@ def get_json(client, key: str, /, *, bucket: str = BUCKET) -> dict | None:
     return json.loads(body)
 
 
-def object_exists(client, key: str, /, *, bucket: str = BUCKET) -> bool:
+def object_exists(client, key: str, /, *, bucket: str | None = None) -> bool:
     """Whether an object exists and is readable anonymously."""
     import botocore.exceptions
 
     try:
-        client.head_object(Bucket=bucket, Key=key)
+        client.head_object(Bucket=bucket or _archive.current().bucket, Key=key)
     except botocore.exceptions.ClientError as error:
         error_code = error.response.get("Error", {}).get("Code", "")
         if error_code in ABSENT_ERROR_CODES:
@@ -119,7 +120,7 @@ def blob_key(content_id: str, /) -> str:
 
 def blob_url(content_id: str, /) -> str:
     """The public HTTPS URL of a content-addressed blob, for streaming readers."""
-    return f"{PUBLIC_BASE_URL}/{blob_key(content_id)}"
+    return f"{_archive.current().public_base_url}/{blob_key(content_id)}"
 
 
 def zarr_key(content_id: str, /) -> str:
@@ -140,7 +141,7 @@ def dandiset_ids(client, /) -> typing.Iterator[str]:
     silently. Every Dandiset that has ever been published has a folder here.
     """
     paginator = client.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=BUCKET, Prefix=DANDISETS_PREFIX, Delimiter="/"):
+    for page in paginator.paginate(Bucket=_archive.current().bucket, Prefix=DANDISETS_PREFIX, Delimiter="/"):
         for entry in page.get("CommonPrefixes", []):
             yield entry["Prefix"].removeprefix(DANDISETS_PREFIX).rstrip("/")
 
@@ -154,7 +155,7 @@ def asset_manifest_keys(client, /, *, dandiset_id: str | None = None) -> typing.
     """
     prefix = DANDISETS_PREFIX if dandiset_id is None else f"{DANDISETS_PREFIX}{dandiset_id}/"
     paginator = client.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=BUCKET, Prefix=prefix):
+    for page in paginator.paginate(Bucket=_archive.current().bucket, Prefix=prefix):
         for entry in page.get("Contents", []):
             if entry["Key"].endswith(ASSETS_MANIFEST_SUFFIX):
                 yield entry["Key"]
@@ -241,6 +242,21 @@ def concurrent_map(
         return []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         return list(executor.map(function, items))
+
+
+#: The module attributes that name a property of the selected archive, read when they are asked for
+#: rather than fixed at import, so they follow the archive the cache's `cache.toml` names.
+_ARCHIVE_ATTRIBUTES = {
+    "BUCKET": lambda archive: archive.bucket,
+    "REGION": lambda archive: archive.region,
+    "PUBLIC_BASE_URL": lambda archive: archive.public_base_url,
+}
+
+
+def __getattr__(name: str, /):
+    if name in _ARCHIVE_ATTRIBUTES:
+        return _ARCHIVE_ATTRIBUTES[name](_archive.current())
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list[str]:

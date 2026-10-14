@@ -10,6 +10,8 @@ the cache has to go from a Dandiset path to the bytes, or wants asset metadata s
 
 import typing
 
+from . import _archive
+
 #: What this module offers on `<TAB>`. Everything here is defined below; the module's own
 #: imports are deliberately left out, which is what `__dir__` at the foot of the file enforces.
 __all__ = [
@@ -20,10 +22,10 @@ __all__ = [
 
 
 def client():
-    """A tokenless DANDI API client, so only public Dandisets are ever reachable."""
+    """A tokenless API client for the cache's archive, so only public Dandisets are ever reachable."""
     import dandi.dandiapi
 
-    return dandi.dandiapi.DandiAPIClient()
+    return dandi.dandiapi.DandiAPIClient(api_url=_archive.current().api_url)
 
 
 class AssetResolver:
