@@ -9,6 +9,8 @@ import dataclasses
 import json
 import math
 import pathlib
+import threading
+import time
 
 import pytest
 
@@ -784,6 +786,63 @@ def test_a_batch_that_runs_past_its_time_limit_stops_early_and_keeps_what_it_did
     assert result.considered == 10
     assert sorted(records) == ["00"]
     assert dataset.read_output_lookup() == records
+
+
+@pytest.mark.ai_generated
+def test_an_item_that_never_finishes_is_abandoned_at_the_time_limit(dataset):
+    """A hung read is abandoned, and what was done before it is kept.
+
+    A batch of `valid-nwb-file-to-number-of-groups` hung for five hours inside one item, where a check
+    between items never ran, and was killed with the job.
+    """
+    never = threading.Event()
+
+    def process(item):
+        if item == "b":
+            never.wait()
+        return item
+
+    start = time.monotonic()
+    records, result = dandi_cache.run_incremental_update(
+        dataset, candidates=["a", "b", "c"], process=process, time_limit_minutes=0.02
+    )
+
+    assert time.monotonic() - start < 30
+    assert result.stopped_for_time
+    assert records == {"a": "a"}
+    assert dataset.read_output_lookup() == {"a": "a"}
+
+
+@pytest.mark.ai_generated
+def test_an_abandoned_item_is_named_in_the_log(dataset, caplog):
+    never = threading.Event()
+
+    dandi_cache.run_incremental_update(
+        dataset, candidates=["stuck"], process=lambda item: never.wait(), time_limit_minutes=0
+    )
+
+    assert "abandons it" in caplog.text
+    assert "stuck" in caplog.text
+
+
+@pytest.mark.ai_generated
+def test_with_one_worker_the_next_item_waits_for_the_last_to_be_recorded(dataset):
+    """Items run in a thread of their own, but never alongside the recording of the one before."""
+    events = []
+
+    def process(item):
+        events.append(f"start {item}")
+        return item
+
+    dandi_cache.run_incremental_update(
+        dataset,
+        candidates=["a", "b", "c"],
+        process=process,
+        checkpoint_every=1,
+        on_write=lambda: events.append("write"),
+    )
+
+    assert events[:6] == ["start a", "write", "start b", "write", "start c", "write"]
 
 
 @pytest.mark.ai_generated
