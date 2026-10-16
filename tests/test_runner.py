@@ -388,6 +388,60 @@ def test_a_supplied_batch_re_assesses_what_is_already_recorded(dataset):
 
 
 @pytest.mark.ai_generated
+def test_what_the_caller_adds_to_recorded_is_written_too(dataset):
+    """A cache that fills in entries needing no processing, as a passthrough, has them published.
+
+    The first run of `content-id-to-usage-dandiset-path` on EMBER handed over 6,053 such entries and
+    8 to resolve, logged that it wrote 6,061, and published only the 8.
+    """
+    recorded = dataset.read_output_lookup()
+    recorded.update({"unique-1": "x", "unique-2": "y"})
+
+    dandi_cache.run_incremental_update(dataset, batch=["ambiguous"], process=lambda item: "z", recorded=recorded)
+
+    assert dataset.read_output_lookup() == {"unique-1": "x", "unique-2": "y", "ambiguous": "z"}
+
+
+@pytest.mark.ai_generated
+def test_what_the_caller_drops_from_recorded_is_dropped_from_the_output(dataset):
+    dataset.write_output_lookup({"gone": 1, "kept": 2})
+    recorded = dataset.read_output_lookup()
+    del recorded["gone"]
+
+    dandi_cache.run_incremental_update(dataset, batch=["new"], process=lambda item: 3, recorded=recorded)
+
+    assert dataset.read_output_lookup() == {"kept": 2, "new": 3}
+
+
+@pytest.mark.ai_generated
+def test_what_the_caller_changes_in_recorded_is_written_even_with_nothing_to_process(dataset):
+    dataset.write_output_lookup({"a": 1})
+    recorded = dataset.read_output_lookup()
+    recorded["a"] = 2
+
+    dandi_cache.run_incremental_update(dataset, batch=[], process=lambda item: 0, recorded=recorded)
+
+    assert dataset.read_output_lookup() == {"a": 2}
+
+
+@pytest.mark.ai_generated
+def test_checkpoints_after_the_first_still_append_only_the_new_results(dataset):
+    recorded = {"passthrough": 0}
+
+    dandi_cache.run_incremental_update(
+        dataset, batch=["a", "b", "c"], process=lambda item: item, recorded=recorded, checkpoint_every=1
+    )
+
+    store = dataset.output_store_path()
+    assert [json.loads(line) for line in _zarr.iter_lines(store)] == [
+        {"passthrough": 0},
+        {"a": "a"},
+        {"b": "b"},
+        {"c": "c"},
+    ]
+
+
+@pytest.mark.ai_generated
 def test_the_batch_has_to_be_selected_exactly_one_way(dataset):
     with pytest.raises(ValueError, match="either `candidates`"):
         dandi_cache.run_incremental_update(dataset, process=lambda item: 1)

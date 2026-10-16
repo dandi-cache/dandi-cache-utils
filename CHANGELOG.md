@@ -127,6 +127,8 @@
 
 ### 🐛 Bug Fix
 
+- `run_incremental_update` given `recorded` now writes that whole mapping, not only the batch's results: what the caller added to it, changed in it or dropped from it before handing it over is recorded by the first write, appending what differs and rewriting the output only when an entry was dropped. Later checkpoints append as before.
+  Since every output became a Zarr store, only the batch's results were appended, so a cache that filled in entries needing no processing lost them silently while logging that it had written them. `content-id-to-usage-dandiset-path` passes through every content ID that has a single Dandiset path: its first run on EMBER published 8 of its 6,061 records, and the DANDI cache was missing the 1,145 content IDs that had become unique since its store was made.
 - The `workspace` subdataset on `derivatives` now links to the cache's own repository on GitHub.
   Its `url` was `.`, which git resolves but GitHub cannot, so GitHub showed `workspace @ <commit>` as plain text.
   It is now `../<name>.git`, which both resolve to the same repository, and every cache's next run rewrites it. ([#34](https://github.com/dandi-cache/dandi-cache-utils/pull/34))
