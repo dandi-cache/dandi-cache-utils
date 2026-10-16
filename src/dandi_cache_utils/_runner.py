@@ -26,12 +26,13 @@ Three failure policies are supported explicitly, because choosing the wrong one 
   publish a permanent failure beside a transient one.
 """
 
-import concurrent.futures
 import dataclasses
 import inspect
 import itertools
 import math
 import pathlib
+import queue
+import threading
 import time
 import typing
 
@@ -184,6 +185,10 @@ def run_incremental_update(
     items in five and a half hours, nearly all of them twenty-minute read timeouts, was killed at the
     job's limit, and published nothing, so not even its recorded failures were kept and the next run
     would have chosen the same items. `BatchResult.stopped_for_time` says it happened.
+    The limit also covers an item that never finishes: items run in daemon threads, so one still
+    running when the limit passes is abandoned, unrecorded, rather than holding the batch until the
+    job is killed. A read of `valid-nwb-file-to-number-of-groups` hung for five hours inside one
+    item, where a check between items never got the chance to run.
 
     Returns the full `{item: value}` mapping and a `BatchResult` describing the batch.
     """
@@ -253,13 +258,8 @@ def run_incremental_update(
             value = process(item, scope) if takes_scope else process(item)
         return item, scope, value, time.monotonic() - item_start_time
 
-    if workers == 1:
-        outcomes: typing.Iterable = map(attempt, batch)
-        executor = None
-    else:
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
-        futures = [executor.submit(attempt, item) for item in batch]
-        outcomes = (future.result() for future in concurrent.futures.as_completed(futures))
+    deadline = batch_start_time + 60 * time_limit_minutes
+    outcomes = _in_daemon_threads(attempt, batch, workers=workers, deadline=deadline)
 
     try:
         for index, (item, scope, value, item_seconds) in enumerate(outcomes, start=1):
@@ -326,9 +326,16 @@ def run_incremental_update(
                     len(batch),
                 )
                 break
-    finally:
-        if executor is not None:
-            executor.shutdown(wait=True, cancel_futures=True)
+    except _Overdue as overdue:
+        result.stopped_for_time = True
+        logger.warning(
+            "The batch has run for its %.0f-minute limit while %s still running, so it abandons %s and "
+            "writes what it has, rather than being killed with the job and losing it: %s.",
+            time_limit_minutes,
+            "one item was" if len(overdue.items) == 1 else f"{len(overdue.items)} items were",
+            "it" if len(overdue.items) == 1 else "them",
+            ", ".join(str(item) for item in overdue.items),
+        )
 
     result.elapsed_seconds = time.monotonic() - batch_start_time
 
@@ -353,6 +360,69 @@ def run_incremental_update(
         candidate_set = set(universe)
         log_progress(sum(1 for item in candidate_set if item in selection_basis or item in records), len(candidate_set))
     return records, result
+
+
+#: How long an item may still take once the time limit has passed before it is abandoned, so one that
+#: is about to finish anyway is recorded rather than thrown away.
+_OVERDUE_GRACE_SECONDS = 1.0
+
+
+class _Overdue(Exception):
+    """The batch's time limit passed while these items were still running."""
+
+    def __init__(self, items: list) -> None:
+        super().__init__(items)
+        self.items = items
+
+
+def _in_daemon_threads(
+    attempt: typing.Callable[[typing.Any], tuple],
+    batch: typing.Sequence,
+    /,
+    *,
+    workers: int,
+    deadline: float,
+) -> typing.Iterator[tuple]:
+    """Yield `attempt(item)` for each item as it finishes, at most `workers` at a time.
+
+    Daemon threads rather than a thread pool, because a pool's threads are joined when the interpreter
+    exits, so one stuck in a read that never returns would keep the process alive until the job is
+    killed. Raises `_Overdue` once `deadline` (a `time.monotonic()` value) passes while waiting, naming
+    the items still running.
+
+    The next item starts only once the caller has finished with the last result, so with one worker the
+    items run strictly one after another, and recording a result never overlaps with processing the next.
+    """
+    results: queue.Queue = queue.Queue()
+    running: dict = {}
+    remaining = enumerate(batch)
+
+    def run(key: int, item: typing.Any) -> None:
+        try:
+            results.put((key, attempt(item), None))
+        except BaseException as exception:  # Re-raised on the calling thread, where it belongs.
+            results.put((key, None, exception))
+
+    def start_next() -> None:
+        for key, item in remaining:
+            running[key] = item
+            threading.Thread(target=run, args=(key, item), daemon=True).start()
+            return
+
+    for _ in range(workers):
+        start_next()
+
+    while running:
+        timeout = None if math.isinf(deadline) else max(_OVERDUE_GRACE_SECONDS, deadline - time.monotonic())
+        try:
+            key, outcome, exception = results.get(timeout=timeout)
+        except queue.Empty:
+            raise _Overdue(list(running.values())) from None
+        del running[key]
+        if exception is not None:
+            raise exception
+        yield outcome
+        start_next()
 
 
 def log_progress(done: int, total: int, /) -> None:

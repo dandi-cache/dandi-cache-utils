@@ -236,6 +236,9 @@ def measure(content_id, item):
 The call's own exception is raised as it was, and a child that dies without answering raises `ChildProcessError`.
 The result crosses back by pickling, so it should be plain data.
 
+Without it, an item that never finishes is still bounded by the batch's `time_limit_minutes` (240 by default): items run in daemon threads, so one still running when the limit passes is abandoned, unrecorded, and the batch writes what it has.
+That saves the run, but the whole batch waits on the stuck item until then, so a cache that reads files remotely should still give each item a timeout of its own with `run_isolated`.
+
 ### Bounding a batch's memory
 
 A child process is also the only way to give memory back.

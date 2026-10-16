@@ -23,6 +23,8 @@
 
 ### 🚀 Enhancement
 
+- `run_incremental_update`'s time limit now also covers an item that never finishes. Items run in daemon threads, and one still running a second after the limit passes is abandoned, unrecorded, while the batch writes what it has, logging which item it gave up on.
+  The limit was checked between items, so a read of `valid-nwb-file-to-number-of-groups` that hung for five hours inside one item was never interrupted, and the run was killed at the job's 330-minute limit with everything since its last checkpoint lost. Seven of the nine caches that read NWB files give an item no timeout of their own. With one worker, items still run one at a time, and the next starts only after the last is recorded.
 - A cache can describe the [EMBER archive](https://emberarchive.org) instead of DANDI, by declaring `archive = "ember"` under `[cache]` in its `cache.toml`.
   EMBER runs the DANDI archive software with its own bucket and API and lays its bucket out the same way, so that one key is all that differs: opening the dataset points `s3` at `ember-open-data` (`BUCKET`, `REGION` and `PUBLIC_BASE_URL` follow it) and `api.client()` at EMBER's API, and the cache, its image and its inputs are looked for in the `ember-cache` organization. A cache that names no archive describes DANDI, as before.
 - `run_incremental_update` stops a batch early, and writes what it has, once it has run for `time_limit_minutes` (240 by default, `math.inf` turns it off); `BatchResult.stopped_for_time` says it happened. A batch of `valid-nwb-file-to-array-sizes` that ran into twenty-minute read timeouts item after item was killed at the job's 330-minute limit and published nothing, not even the failures that would have let the next run move past those items.
