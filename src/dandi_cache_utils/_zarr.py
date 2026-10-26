@@ -175,8 +175,18 @@ def _chunk_count(length: int, chunk_bytes: int, /) -> int:
 
 
 def _read_chunk(path: pathlib.Path, /) -> bytes:
-    data = path.read_bytes()
+    return decode_chunk(path.read_bytes())
+
+
+def decode_chunk(data: bytes, /) -> bytes:
+    """A chunk's JSONL text, whether it was written raw or with the gzip codec."""
     return gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data
+
+
+def chunk_lines(data: bytes, /) -> list[bytes]:
+    """The non-blank lines of one decoded chunk, in order, as bytes."""
+    # The padding is at the end of a chunk, so stripping it first leaves no empty lines to walk.
+    return [raw for raw in data.rstrip(_NEWLINE_BYTE).split(_NEWLINE_BYTE) if raw and not raw.isspace()]
 
 
 def _iter_raw_lines(store: pathlib.Path, /) -> typing.Iterator[bytes]:
@@ -186,12 +196,8 @@ def _iter_raw_lines(store: pathlib.Path, /) -> typing.Iterator[bytes]:
     metadata = _read_array_metadata(store)
     for index in range(_chunk_count(metadata["shape"][0], _chunk_bytes(metadata))):
         path = _chunk_path(store, index)
-        if not path.exists():
-            continue
-        # The padding is at the end of a chunk, so stripping it first leaves no empty lines to walk.
-        for raw in _read_chunk(path).rstrip(_NEWLINE_BYTE).split(_NEWLINE_BYTE):
-            if raw and not raw.isspace():
-                yield raw
+        if path.exists():
+            yield from chunk_lines(_read_chunk(path))
 
 
 def iter_lines(store: pathlib.Path, /) -> typing.Iterator[str]:
@@ -203,7 +209,7 @@ def iter_lines(store: pathlib.Path, /) -> typing.Iterator[str]:
         yield raw.decode("utf-8")
 
 
-def _raw_line_key(raw: bytes, /) -> typing.Any:
+def raw_line_key(raw: bytes, /) -> typing.Any:
     """The key of a single-key JSON object line, parsing it only when the key needs unescaping.
 
     A line of an output of bare IDs is its own key, so a repeated ID counts once.
@@ -220,7 +226,7 @@ def _raw_line_key(raw: bytes, /) -> typing.Any:
 
 def line_key(line: str, /) -> typing.Any:
     """The key of a single-key JSON object line."""
-    key = _raw_line_key(line.encode("utf-8"))
+    key = raw_line_key(line.encode("utf-8"))
     return key.decode("utf-8") if isinstance(key, bytes) else key
 
 
@@ -232,9 +238,9 @@ def iter_latest_lines(store: pathlib.Path, /) -> typing.Iterator[str]:
     """
     last: dict = {}
     for ordinal, raw in enumerate(_iter_raw_lines(store)):
-        last[_raw_line_key(raw)] = ordinal
+        last[raw_line_key(raw)] = ordinal
     for ordinal, raw in enumerate(_iter_raw_lines(store)):
-        if last.get(_raw_line_key(raw)) == ordinal:
+        if last.get(raw_line_key(raw)) == ordinal:
             yield raw.decode("utf-8")
 
 
@@ -243,7 +249,7 @@ def count_lines(store: pathlib.Path, /) -> tuple[int, int]:
     keys = set()
     total = 0
     for raw in _iter_raw_lines(store):
-        keys.add(_raw_line_key(raw))
+        keys.add(raw_line_key(raw))
         total += 1
     return total, len(keys)
 

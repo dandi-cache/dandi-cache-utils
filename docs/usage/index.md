@@ -76,8 +76,25 @@ Each is registered as a DataLad subdataset and pinned with `--input` in every ru
 | `branch` | `derivatives` | The branch the upstream publishes on. |
 | `file_name` | `<underscored name>.jsonl` | The file to read within it. |
 | `format` | `lookup` | How {meth}`~dandi_cache_utils.CacheDataset.read_input` parses it. |
+| `stream` | `false` | Read it over HTTPS at the pinned commit, one chunk at a time, rather than clone it. See below. |
 
 The three formats are the three shapes a cache's JSON Lines file takes: `lookup` (one single-key object per line, merged into one mapping), `records` (one independent JSON value per line, kept as a list) and `ids` (one bare scalar per line, collected into a set).
+
+#### Streaming a large input
+
+An upstream whose store runs to gigabytes costs every run a clone of it, and the disk to check it out.
+With `stream = true` the input is never cloned: the pipeline records the commit at the tip of its branch as the subdataset's gitlink, which is the same record a cloned input gets, and {meth}`~dandi_cache_utils.CacheDataset.iter_input` and {meth}`~dandi_cache_utils.CacheDataset.read_input` read the store at that commit from GitHub's raw file service, one chunk at a time, in memory.
+GitHub compresses each file in transit, so an 80 MB chunk of JSON Lines crosses the network as a few megabytes: `valid-nwb-file-to-array-sizes`, 13.5 GiB on disk, streams as about 550 MiB in under four minutes, with nothing written to disk.
+
+```toml
+[[inputs]]
+name = "valid-nwb-file-to-array-sizes"
+stream = true
+```
+
+The input must be on GitHub, and the container needs network access at run time.
+A streamed lookup is read in one pass from its newest entries to its oldest, so `iter_input` yields it newest first rather than in the store's order.
+It is not an `--input` of the recorded run, since DataLad would install it to satisfy one, but the gitlink still names the exact upstream commit each result was computed from.
 
 Omit the section entirely for a first-in-chain cache that fetches its own inputs over the network.
 Nothing is then pinned, and the container must be able to reach the upstream source at run time.

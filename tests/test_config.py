@@ -181,6 +181,35 @@ def test_invalid_configurations_are_rejected(tmp_path, text):
 
 
 @pytest.mark.ai_generated
+def test_an_input_can_be_streamed(tmp_path):
+    file_path = write_config(
+        tmp_path,
+        '[cache]\nname = "my-cache"\n\n[[inputs]]\nname = "big"\nstream = true\n\n[[inputs]]\nname = "small"\n',
+    )
+
+    parsed = dandi_cache.read_config(file_path)
+
+    assert [entry.stream for entry in parsed.inputs] == [True, False]
+    assert "INPUT_STREAMED=(true false)" in dandi_cache.as_shell(parsed).splitlines()
+
+
+@pytest.mark.ai_generated
+@pytest.mark.parametrize(
+    "entry",
+    [
+        'name = "big"\nstream = "yes"\n',
+        # Streaming reads GitHub's raw files, so another host cannot be streamed.
+        'name = "big"\nstream = true\nurl = "https://gitlab.com/someone/big.git"\n',
+    ],
+)
+def test_a_streamed_input_is_checked(tmp_path, entry):
+    file_path = write_config(tmp_path, f'[cache]\nname = "my-cache"\n\n[[inputs]]\n{entry}')
+
+    with pytest.raises((ValueError, TypeError)):
+        dandi_cache.read_config(file_path)
+
+
+@pytest.mark.ai_generated
 def test_two_inputs_cannot_share_a_path(tmp_path):
     file_path = write_config(
         tmp_path,
