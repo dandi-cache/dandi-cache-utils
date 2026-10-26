@@ -59,7 +59,11 @@ def server(tmp_path, monkeypatch):
 
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    monkeypatch.setattr(_remote, "RAW_URL_TEMPLATE", f"http://127.0.0.1:{httpd.server_port}/{{owner}}/{{repository}}/{{commit}}/{{path}}")
+    monkeypatch.setattr(
+        _remote,
+        "RAW_URL_TEMPLATE",
+        f"http://127.0.0.1:{httpd.server_port}/{{owner}}/{{repository}}/{{commit}}/{{path}}",
+    )
     monkeypatch.setattr(_remote, "RETRY_DELAYS", (0, 0, 0, 0))
     yield root
     httpd.shutdown()
@@ -73,7 +77,9 @@ def publish(root: pathlib.Path, lines: list[str], /, *, chunk_bytes: int = 1_000
 
 
 def remote() -> _remote.RemoteStore:
-    return _remote.RemoteStore.at_commit("https://github.com/dandi-cache/up-stream.git", COMMIT, "derivatives/up_stream.zarr")
+    return _remote.RemoteStore.at_commit(
+        "https://github.com/dandi-cache/up-stream.git", COMMIT, "derivatives/up_stream.zarr"
+    )
 
 
 def lines_of(count: int, /) -> list[str]:
@@ -99,7 +105,9 @@ def test_a_chunk_compressed_in_transit_and_with_the_gzip_codec_reads_the_same(se
 @pytest.mark.ai_generated
 def test_the_latest_line_of_each_key_wins_in_one_pass(server):
     store = publish(server, lines_of(100))
-    _zarr.append_lines(store, [json.dumps({"id-0003": {"n": "new"}}), json.dumps({"id-0099": {"n": "newer"}})], chunk_bytes=1_000)
+    _zarr.append_lines(
+        store, [json.dumps({"id-0003": {"n": "new"}}), json.dumps({"id-0099": {"n": "newer"}})], chunk_bytes=1_000
+    )
 
     latest = [json.loads(line) for line in remote().iter_latest_lines()]
     merged = {key: value for record in latest for key, value in record.items()}
