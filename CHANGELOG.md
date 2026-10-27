@@ -23,6 +23,8 @@
 
 ### 🚀 Enhancement
 
+- An input can be streamed rather than cloned, by declaring `stream = true` in its `[[inputs]]` entry. The pipeline records the tip of the input's branch as its subdataset's gitlink, without cloning it, and `iter_input` and `read_input` read the store at that commit over HTTPS from GitHub's raw file service, one chunk at a time, in memory, with retries and two chunks fetched ahead. A lookup is read in one pass, newest entries first.
+  `valid-nwb-file-to-byte-weighted-structure` reads `valid-nwb-file-to-array-sizes`, whose store is 13.5 GiB on disk and too large to clone onto a runner; streamed, it is about 550 MiB over the network and under four minutes, with nothing on disk.
 - `run_incremental_update`'s time limit now also covers an item that never finishes. Items run in daemon threads, and one still running a second after the limit passes is abandoned, unrecorded, while the batch writes what it has, logging which item it gave up on.
   The limit was checked between items, so a read of `valid-nwb-file-to-number-of-groups` that hung for five hours inside one item was never interrupted, and the run was killed at the job's 330-minute limit with everything since its last checkpoint lost. Seven of the nine caches that read NWB files give an item no timeout of their own. With one worker, items still run one at a time, and the next starts only after the last is recorded.
 - A cache can describe the [EMBER archive](https://emberarchive.org) instead of DANDI, by declaring `archive = "ember"` under `[cache]` in its `cache.toml`.

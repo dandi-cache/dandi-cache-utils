@@ -165,6 +165,7 @@ CACHE_OUTPUTS=()
 INPUT_PATHS=()
 INPUT_URLS=()
 INPUT_BRANCHES=()
+INPUT_STREAMED=()
 OPERATION_SCRIPT=""
 OPERATION_LABEL=""
 OPERATION_DEFAULT_LIMIT=""
@@ -252,11 +253,44 @@ datalad save -m "Update dataset_description.json" dataset_description.json
 # fetched -- an upstream cache may have rewritten its history, and fetching a commit that no longer
 # exists on the remote fails the run with "not our ref".
 # ---------------------------------------------------------------------------------------------
+#
+# A streamed input (`stream = true`) is never cloned: the operation reads its store over HTTPS, one
+# chunk at a time, at the commit recorded here. Only its gitlink is moved to the tip of its branch,
+# which is the same record a cloned input gets, so every result still names the upstream commit it
+# was computed from. It is left uninstalled, and so costs the runner neither the clone nor the disk.
+# ---------------------------------------------------------------------------------------------
+pin_streamed_input() {
+  local input_path="$1" input_url="$2" input_branch="$3" listing commit
+  listing=$(retry_with_backoff "git ls-remote ${input_url}" git ls-remote "${input_url}" "refs/heads/${input_branch}")
+  commit=$(printf '%s\n' "${listing}" | cut -f1)
+  if [ -z "${commit}" ]; then
+    echo "ERROR: ${input_url} has no '${input_branch}' branch to stream ${input_path} from." >&2
+    exit 1
+  fi
+  git config -f .gitmodules "submodule.${input_path}.path" "${input_path}"
+  git config -f .gitmodules "submodule.${input_path}.url" "${input_url}"
+  git config -f .gitmodules "submodule.${input_path}.datalad-url" "${input_url}"
+  git config -f .gitmodules "submodule.${input_path}.branch" "${input_branch}"
+  git update-index --add --cacheinfo "160000,${commit},${input_path}"
+  # An uninstalled subdataset is an empty directory, as a fresh clone leaves it; without one, git
+  # reports the input as deleted, and the clean-tree check before the run fails.
+  mkdir -p "${input_path}"
+  git add .gitmodules
+  echo "Pinned streamed input ${input_path} to ${commit}."
+}
+
+CLONED_INPUT_PATHS=()
 if [ "${#INPUT_PATHS[@]}" -gt 0 ]; then
   for index in "${!INPUT_PATHS[@]}"; do
     input_path="${INPUT_PATHS[${index}]}"
     input_url="${INPUT_URLS[${index}]}"
     input_branch="${INPUT_BRANCHES[${index}]}"
+
+    if [ "${INPUT_STREAMED[${index}]:-false}" = "true" ]; then
+      pin_streamed_input "${input_path}" "${input_url}" "${input_branch}"
+      continue
+    fi
+    CLONED_INPUT_PATHS+=("${input_path}")
 
     if ! git config -f .gitmodules --get "submodule.${input_path}.url" > /dev/null 2>&1; then
       echo "Registering new input subdataset ${input_path}."
@@ -267,11 +301,19 @@ if [ "${#INPUT_PATHS[@]}" -gt 0 ]; then
     git submodule update --init --remote "${input_path}"
   done
 
+  # The streamed pins are staged by plain git, since there is no installed subdataset for DataLad to
+  # save, and are committed before DataLad saves the cloned ones.
+  if ! git diff --cached --quiet; then
+    git commit --quiet -m "Pin streamed input subdatasets to latest"
+  fi
+
   # `-d .` is required: without it, `datalad save` resolves the target dataset by walking up from
   # the given path, and since that path is itself a subdataset mount point it silently targets the
   # (clean, nothing-to-save) subdataset instead of registering the new commit in the superdataset
   # -- exiting 0 without having saved anything.
-  datalad save -d . -m "Update input subdatasets to latest" "${INPUT_PATHS[@]}" .gitmodules
+  if [ "${#CLONED_INPUT_PATHS[@]}" -gt 0 ]; then
+    datalad save -d . -m "Update input subdatasets to latest" "${CLONED_INPUT_PATHS[@]}" .gitmodules
+  fi
 fi
 
 # ---------------------------------------------------------------------------------------------
@@ -347,8 +389,10 @@ fi
 # of every completed update is committed to `derivatives` with the results it produced. Only
 # `derivatives` is published to `dist`.
 # ---------------------------------------------------------------------------------------------
+# A streamed input is not an `--input`: DataLad would install it to satisfy one, which is the clone
+# streaming exists to avoid. Its commit is still pinned, by the gitlink recorded above.
 RUN_INPUT_ARGS=(--input workspace)
-for input_path in ${INPUT_PATHS[@]+"${INPUT_PATHS[@]}"}; do
+for input_path in ${CLONED_INPUT_PATHS[@]+"${CLONED_INPUT_PATHS[@]}"}; do
   RUN_INPUT_ARGS+=(--input "${input_path}")
 done
 

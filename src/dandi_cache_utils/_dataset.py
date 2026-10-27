@@ -20,7 +20,7 @@ import json
 import pathlib
 import typing
 
-from . import _archive, _jsonl, _zarr
+from . import _archive, _jsonl, _remote, _zarr
 from ._config import DEFAULT_OPERATION, SPLIT_FILE_COUNTS, CacheConfig, InputCache, load_config, split_names
 from ._logs import LOG_DIRECTORY_NAME, configure_logging
 
@@ -110,6 +110,8 @@ class CacheDataset:
         otherwise be read as empty, and the run would happily publish an empty cache over a good one.
         """
         input_cache: InputCache = self.config.only_input if name is None else self.config.input(name)
+        if input_cache.stream:
+            return _read_remote_store(self._remote_store(input_cache), format=input_cache.format)
         store = self._input_store(name)
         if store is not None:
             return _read_store(store, format=input_cache.format)
@@ -124,7 +126,14 @@ class CacheDataset:
         For an input too large to hold in memory whole: only one entry is parsed at a time, and an
         upstream kept as split files is read one file after another, and one kept as a Zarr store one
         chunk after another. Requires the input to exist.
+
+        A streamed input is read over HTTPS one chunk at a time, newest entries first.
         """
+        input_cache: InputCache = self.config.only_input if name is None else self.config.input(name)
+        if input_cache.stream:
+            for line in self._remote_store(input_cache).iter_latest_lines():
+                yield from json.loads(line).items()
+            return
         store = self._input_store(name)
         if store is not None:
             yield from _iter_store_items(store)
@@ -139,6 +148,12 @@ class CacheDataset:
             if path.exists():
                 for record in _jsonl.iter_json_lines(path):
                     yield from record.items()
+
+    def _remote_store(self, input_cache: InputCache, /) -> "_remote.RemoteStore":
+        """A streamed input's store, at the upstream commit this dataset records for it."""
+        commit = _remote.pinned_commit(self.base_directory, input_cache.path)
+        store_name = _zarr.store_path(pathlib.Path(input_cache.file_name)).name
+        return _remote.RemoteStore.at_commit(input_cache.url, commit, f"derivatives/{store_name}")
 
     def _input_store(self, name: str | None, /) -> pathlib.Path | None:
         """The Zarr store an upstream keeps its cache as, or `None` when it keeps files."""
@@ -383,6 +398,18 @@ def _iter_store_items(store: pathlib.Path, /) -> typing.Iterator[tuple[typing.An
     """The current `(key, value)` entries of a lookup kept as a Zarr store."""
     for line in _zarr.iter_latest_lines(store):
         yield from json.loads(line).items()
+
+
+def _read_remote_store(store: "_remote.RemoteStore", /, *, format: str) -> dict | list | set:
+    """Read a streamed input in whichever of the three shapes its cache declares."""
+    if format == "lookup":
+        return dict(item for line in store.iter_latest_lines() for item in json.loads(line).items())
+    values = [json.loads(raw) for raw in store.iter_raw_lines()]
+    if format == "records":
+        return values
+    if format == "ids":
+        return set(values)
+    raise ValueError(f"Unknown input format {format!r}; expected one of: ids, lookup, records.")
 
 
 def _read_store(store: pathlib.Path, /, *, format: str) -> dict | list | set:

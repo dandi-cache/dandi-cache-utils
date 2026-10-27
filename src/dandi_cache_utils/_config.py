@@ -15,6 +15,7 @@ import dataclasses
 import itertools
 import os
 import pathlib
+import re
 import shlex
 import sys
 import tomllib
@@ -142,6 +143,8 @@ class InputCache:
     branch: str
     file_name: str
     format: str
+    #: Read over HTTPS at the pinned commit, one chunk at a time, rather than cloned. See `_remote`.
+    stream: bool = False
 
     @property
     def relative_file_path(self) -> pathlib.PurePosixPath:
@@ -241,13 +244,23 @@ def _parse_input(raw: dict, /, *, organization: str) -> InputCache:
         allowed = ", ".join(INPUT_FORMATS)
         raise ValueError(f"Input {name!r} has format {input_format!r}; expected one of: {allowed}.")
 
+    stream = raw.get("stream", False)
+    if not isinstance(stream, bool):
+        raise TypeError(f"Input {name!r} has stream {stream!r}; expected true or false.")
+    url = raw.get("url", REPOSITORY_URL_TEMPLATE.format(organization=organization, name=name))
+    # Streaming reads the upstream's files from GitHub's raw file service, so only a GitHub repository
+    # can be streamed. Checked here rather than at the first read, so the mistake fails the config.
+    if stream and not re.match(r"^https://github\.com/[^/]+/[^/]+?(?:\.git)?/?$", url):
+        raise ValueError(f"Input {name!r} is streamed, which needs a GitHub repository URL, not {url!r}.")
+
     return InputCache(
         name=name,
-        url=raw.get("url", REPOSITORY_URL_TEMPLATE.format(organization=organization, name=name)),
+        url=url,
         path=raw.get("path", f"sourcedata/{name}"),
         branch=raw.get("branch", DEFAULT_INPUT_BRANCH),
         file_name=raw.get("file", f'{name.replace("-", "_")}.jsonl'),
         format=input_format,
+        stream=stream,
     )
 
 
@@ -498,6 +511,7 @@ def as_shell(config: CacheConfig, /, *, operation: str = DEFAULT_OPERATION) -> s
         _shell_array("INPUT_PATHS", [input_cache.path for input_cache in config.inputs]),
         _shell_array("INPUT_URLS", [input_cache.url for input_cache in config.inputs]),
         _shell_array("INPUT_BRANCHES", [input_cache.branch for input_cache in config.inputs]),
+        _shell_array("INPUT_STREAMED", ["true" if input_cache.stream else "false" for input_cache in config.inputs]),
         f"OPERATION_NAME={shlex.quote(selected.name)}",
         f"OPERATION_SCRIPT={shlex.quote(selected.script)}",
         f"OPERATION_LABEL={shlex.quote(selected.label)}",
@@ -516,7 +530,8 @@ def describe(config: CacheConfig, /) -> str:
         f"operations: {', '.join(sorted(config.operations))}",
     ]
     lines.extend(
-        f"input:      {entry.name} ({entry.format}) @ {entry.branch} -> {entry.path}" for entry in config.inputs
+        f"input:      {entry.name} ({entry.format}) @ {entry.branch} -> {'streamed' if entry.stream else entry.path}"
+        for entry in config.inputs
     )
     return "\n".join(lines)
 
