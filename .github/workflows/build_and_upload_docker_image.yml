@@ -186,7 +186,10 @@ jobs:
       - name: Ask every cache to rebuild on the new base
         env:
           GH_TOKEN: ${{ secrets._GITHUB_API_KEY }}
-          ORGANIZATION: ${{ github.repository_owner }}
+          # One organization per archive in `_config.ARCHIVES`: every archive's caches are built FROM
+          # this same base, so every one of them is asked. The token must be able to read and dispatch
+          # to each, and an organization it cannot list fails the run rather than being skipped.
+          ORGANIZATIONS: dandi-cache ember-cache
           EVENT_TYPE: base-image-published
           CONFIG_FILE: cache.toml
         run: |
@@ -195,40 +198,44 @@ jobs:
           # anyone remembering to add it to a list, and a cache that has not migrated yet is not
           # built FROM this base and is correctly left alone. The template declares one too, and is
           # excluded by its template flag.
-          REPOSITORIES=$(gh api --paginate "orgs/${ORGANIZATION}/repos" \
-            --jq '.[] | select(.archived == false and .is_template == false) | .name')
-
-          # An empty listing means the organization could not be read -- a token that lost its
-          # scope, an API change -- rather than that there are no caches, and every check below
-          # would then quietly find nothing. That is the silence worth failing on.
-          if [ -z "${REPOSITORIES}" ]; then
-            echo "ERROR: listed no repositories in ${ORGANIZATION}, so nothing could be asked." >&2
-            exit 1
-          fi
-
           DISPATCHED=0
           FAILED=""
           dispatch() {
-            gh api --method POST "repos/${ORGANIZATION}/$1/dispatches" -f "event_type=${EVENT_TYPE}" >/dev/null 2>&1
+            gh api --method POST "repos/$1/dispatches" -f "event_type=${EVENT_TYPE}" >/dev/null 2>&1
           }
-          for REPOSITORY in ${REPOSITORIES}; do
-            # On its default branch: a cache declares itself one when its migration merges, which
-            # is also when it starts being built FROM this base and has something to rebuild for.
-            if ! gh api "repos/${ORGANIZATION}/${REPOSITORY}/contents/${CONFIG_FILE}" >/dev/null 2>&1; then
+          for ORGANIZATION in ${ORGANIZATIONS}; do
+            REPOSITORIES=$(gh api --paginate "orgs/${ORGANIZATION}/repos" \
+              --jq '.[] | select(.archived == false and .is_template == false) | .name')
+
+            # An empty listing means the organization could not be read -- a token that lost its
+            # scope, an API change -- rather than that there are no caches, and every check below
+            # would then quietly find nothing. That is the silence worth failing on.
+            if [ -z "${REPOSITORIES}" ]; then
+              echo "ERROR: listed no repositories in ${ORGANIZATION}, so nothing could be asked." >&2
+              FAILED="${FAILED} ${ORGANIZATION}/*"
               continue
             fi
 
-            # A cache that has not yet added the trigger accepts the dispatch and does nothing with
-            # it, so this is safe to send to every cache and self-healing once one adds it.
-            # Three tries, since one refused request should not leave a cache on the old base.
-            if dispatch "${REPOSITORY}" || { sleep 10 && dispatch "${REPOSITORY}"; } \
-               || { sleep 30 && dispatch "${REPOSITORY}"; }; then
-              echo "${REPOSITORY}: asked to rebuild."
-              DISPATCHED=$((DISPATCHED + 1))
-            else
-              echo "${REPOSITORY}: dispatch FAILED." >&2
-              FAILED="${FAILED} ${REPOSITORY}"
-            fi
+            for REPOSITORY in ${REPOSITORIES}; do
+              # On its default branch: a cache declares itself one when its migration merges, which
+              # is also when it starts being built FROM this base and has something to rebuild for.
+              if ! gh api "repos/${ORGANIZATION}/${REPOSITORY}/contents/${CONFIG_FILE}" >/dev/null 2>&1; then
+                continue
+              fi
+
+              # A cache that has not yet added the trigger accepts the dispatch and does nothing with
+              # it, so this is safe to send to every cache and self-healing once one adds it.
+              # Three tries, since one refused request should not leave a cache on the old base.
+              TARGET="${ORGANIZATION}/${REPOSITORY}"
+              if dispatch "${TARGET}" || { sleep 10 && dispatch "${TARGET}"; } \
+                 || { sleep 30 && dispatch "${TARGET}"; }; then
+                echo "${TARGET}: asked to rebuild."
+                DISPATCHED=$((DISPATCHED + 1))
+              else
+                echo "${TARGET}: dispatch FAILED." >&2
+                FAILED="${FAILED} ${TARGET}"
+              fi
+            done
           done
 
           echo "Dispatched to ${DISPATCHED} cache(s)."

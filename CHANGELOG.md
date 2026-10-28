@@ -139,6 +139,7 @@
 
 ### 🏠 Internal
 
+- A new base image now asks the caches of every archive to rebuild on it, `ember-cache`'s as well as `dandi-cache`'s, so an EMBER cache no longer stays on the base it was last built on until someone rebuilds it by hand. An organization the token cannot list still fails the run, after the others have been asked.
 - Publishing the base images now asks every cache to rebuild its own image, through a `repository_dispatch` its build workflow listens for.
   A cache's image is built `FROM` the base and `FROM` resolves at build time, so a release reached ghcr and stopped there: a cache kept whatever base it was last built on until its Dockerfile or its dependencies happened to change.
   The caches are found by having a `cache.toml`, so one joins the fan-out by migrating rather than by being added to a list ([#7](https://github.com/dandi-cache/dandi-cache-utils/pull/7)).
