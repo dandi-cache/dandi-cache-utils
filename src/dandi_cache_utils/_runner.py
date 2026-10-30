@@ -78,6 +78,7 @@ def select_new(
     *,
     limit: int | None = None,
     retry_when: typing.Callable[[typing.Any], bool] | None = None,
+    rotation: int = 0,
 ) -> list:
     """The items in `universe` not already recorded, sorted, capped at `limit`.
 
@@ -87,12 +88,24 @@ def select_new(
     With `retry_when`, `recorded` is a mapping, and the items of `universe` it records with a value
     `retry_when` accepts follow the unrecorded ones, sorted too. They come last so that an item
     which fails every time it is tried cannot hold back the items that have never been tried.
+
+    The retries start `rotation` places into their sorted order and wrap around. A run that stops
+    for its time limit partway through them would otherwise retry the same first ones every time,
+    and never reach the rest: `run_incremental_update` passes a rotation that changes from run to
+    run, so each retry has its turn.
     """
     universe = list(universe)
     frontier = sorted(item for item in universe if item not in recorded)
     if retry_when is not None:
-        frontier += sorted(item for item in universe if item in recorded and retry_when(recorded[item]))
+        retries = sorted(item for item in universe if item in recorded and retry_when(recorded[item]))
+        start = rotation % len(retries) if retries else 0
+        frontier += retries[start:] + retries[:start]
     return frontier if limit is None else list(itertools.islice(frontier, limit))
+
+
+def _retry_rotation() -> int:
+    """Where this run starts in the sorted retries: the minute it starts, so each run differs."""
+    return int(time.time() // 60)
 
 
 def select_stale(
@@ -236,7 +249,7 @@ def run_incremental_update(
     batch = (
         list(batch)
         if universe is None
-        else select_new(universe, selection_basis, limit=limit, retry_when=selection_retry)
+        else select_new(universe, selection_basis, limit=limit, retry_when=selection_retry, rotation=_retry_rotation())
     )
 
     limit_mib = memory_limit_mib if memory_limit_mib is not None else _default_memory_limit_mib()

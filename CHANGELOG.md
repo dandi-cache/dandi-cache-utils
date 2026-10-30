@@ -131,6 +131,8 @@
 
 ### 🐛 Bug Fix
 
+- `RETRY` now reaches every item it retries, not only the first ones. Each run starts the retries at a different place in their sorted order, wrapping around, while the items never tried still come first and in order.
+  The retries were sorted and started from the beginning every run, so a run that its time limit stopped partway through them retried the same items every time and never the rest. `valid-nwb-file-to-array-sizes` holds 393 files that timed out: each four-hour run got through the same 88, all of which timed out again, and the other 305 were never tried a second time.
 - `run_incremental_update` given `recorded` now writes that whole mapping, not only the batch's results: what the caller added to it, changed in it or dropped from it before handing it over is recorded by the first write, appending what differs and rewriting the output only when an entry was dropped. Later checkpoints append as before.
   Since every output became a Zarr store, only the batch's results were appended, so a cache that filled in entries needing no processing lost them silently while logging that it had written them. `content-id-to-usage-dandiset-path` passes through every content ID that has a single Dandiset path: its first run on EMBER published 8 of its 6,061 records, and the DANDI cache was missing the 1,145 content IDs that had become unique since its store was made.
 - The `workspace` subdataset on `derivatives` now links to the cache's own repository on GitHub.
