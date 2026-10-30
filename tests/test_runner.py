@@ -239,6 +239,50 @@ def test_retryable_items_follow_the_untried_ones():
 
 
 @pytest.mark.ai_generated
+def test_the_retries_start_where_the_rotation_says_and_wrap_around():
+    recorded = {item: "timeout" for item in "abcde"}
+    universe = ["f", *"edcba", "g"]
+
+    def select(rotation, limit=None):
+        return dandi_cache.select_new(
+            universe, recorded, limit=limit, retry_when=lambda value: value == "timeout", rotation=rotation
+        )
+
+    assert select(0) == ["f", "g", "a", "b", "c", "d", "e"]
+    assert select(2) == ["f", "g", "c", "d", "e", "a", "b"]
+    assert select(7) == select(2)
+    assert select(3, limit=4) == ["f", "g", "d", "e"]
+
+
+@pytest.mark.ai_generated
+def test_runs_that_stop_partway_through_the_retries_reach_every_one_of_them(dataset, monkeypatch):
+    """A batch of retries cut short by the time limit used to retry the same first ones every run."""
+    from dandi_cache_utils import _runner
+
+    items = [f"id-{index}" for index in range(6)]
+    dataset.write_output_lookup({item: {"status": "timeout"} for item in items})
+    attempted = set()
+
+    def process(item):
+        attempted.add(item)
+        raise TimeoutError("exceeded 20 min")
+
+    for rotation in (0, 2, 4):
+        monkeypatch.setattr(_runner, "_retry_rotation", lambda rotation=rotation: rotation)
+        dandi_cache.run_incremental_update(
+            dataset,
+            candidates=items,
+            process=process,
+            limit=2,
+            on_failure=dandi_cache.RETRY,
+            failure_value=lambda item, scope: {"status": "timeout"},
+            retry_when=lambda value: value["status"] == "timeout",
+        )
+
+    assert attempted == set(items)
+
+
+@pytest.mark.ai_generated
 def test_a_retried_failure_is_published_and_selected_again(dataset):
     attempts = {"b": 0}
 
