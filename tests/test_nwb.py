@@ -182,10 +182,10 @@ def awkward_hdf5_file(tmp_path):
 def awkward_zarr_group(tmp_path):
     """The Zarr counterpart: nesting, arrays and an empty group. Zarr has no links, so no cycles."""
     root = zarr.open_group(store=str(tmp_path / "awkward.zarr"), mode="w")
-    root.create_dataset("top", shape=(2,), dtype="i4")
+    root.zeros(name="top", shape=(2,), dtype="i4")
     nested = root.create_group("nested")
-    nested.create_dataset("inner", shape=(2,), dtype="i4")
-    nested.create_group("deeper").create_dataset("leaf", shape=(2,), dtype="i4")
+    nested.zeros(name="inner", shape=(2,), dtype="i4")
+    nested.create_group("deeper").zeros(name="leaf", shape=(2,), dtype="i4")
     root.create_group("empty")
     return root
 
