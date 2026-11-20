@@ -59,7 +59,9 @@ ZARR = "zarr"
 #:
 #: `LINKS_FOLLOWED` walks the hierarchy as it is named: every entry of a group is a child of it,
 #: whatever kind of link put it there. A group that has already been walked is not walked again --
-#: that is what stops a link cycle -- but it is still a child of the node that named it.
+#: that is what stops a link cycle -- but it is still a child of the node that named it. A soft or
+#: external link whose target the file does not hold is still an entry, so it is a child too: a
+#: leaf, being nothing that could have children, and neither a group nor a dataset.
 #:
 #: Neither is the right one. A cache picks the one its published values were computed with.
 LINKS_SKIPPED = "skipped"
@@ -213,10 +215,24 @@ def walk_hdf5_group(root_group, /, *, links: str = LINKS_SKIPPED) -> Structure:
         return h5py.h5o.get_info(item.id).addr
 
     def _children(group):
-        """The group's children under this link policy, in the order `visititems` would see them."""
+        """The group's children under this link policy, in the order `visititems` would see them.
+
+        Under `LINKS_FOLLOWED` a link that resolves to nothing -- a soft link to a path the file
+        does not hold, which some writers leave behind -- is yielded as `None`. Opening it can only
+        ever raise, so leaving the file for a later run to retry would retry it forever.
+        """
         for name in group.keys():
-            if followed or isinstance(group.get(name, getlink=True), h5py.HardLink):
+            if isinstance(group.get(name, getlink=True), h5py.HardLink):
                 yield group[name]
+            elif followed:
+                yield _resolve(group, name)
+
+    def _resolve(group, name: str):
+        """The object a soft or external link names, or `None` when the file holds no such object."""
+        try:
+            return group[name]
+        except KeyError:
+            return None
 
     def _walk(group, depth: int) -> int:
         """Accumulate into `structure`; return the number of leaves at or below `group`."""
@@ -242,6 +258,11 @@ def walk_hdf5_group(root_group, /, *, links: str = LINKS_SKIPPED) -> Structure:
 
         leaves_per_child = []
         for child in children:
+            if child is None:
+                structure.max_depth = max(structure.max_depth, depth + 1)
+                structure.leaf_depths.append(depth + 1)
+                leaves_per_child.append(1)
+                continue
             if isinstance(child, h5py.Group):
                 leaves_per_child.append(_walk(child, depth + 1))
                 continue

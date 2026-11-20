@@ -290,6 +290,34 @@ def test_an_empty_zarr_root_is_a_leaf(tmp_path):
     assert structure.total_cophenetic_index == 0
 
 
+def test_a_dangling_link_is_a_leaf_when_links_are_followed(tmp_path):
+    """A soft link to a path the file does not hold, as some writers leave under `/general/devices`.
+
+    Opening it raises `KeyError` every time, so failing the file would retry it forever. Followed,
+    it is an entry of its group like any other: a leaf at depth 2, and neither a group nor a dataset.
+    Skipped, it is not walked at all, as with any soft link.
+    """
+    path = tmp_path / "dangling.h5"
+    with h5py.File(path, mode="w") as file:
+        device = file.create_group("device")
+        device.create_dataset("description", data=1)
+        device["model"] = h5py.SoftLink("/models/missing")
+
+    with h5py.File(path, mode="r") as file:
+        followed = nwb.walk_hdf5_group(file, links=nwb.LINKS_FOLLOWED)
+        skipped = nwb.walk_hdf5_group(file, links=nwb.LINKS_SKIPPED)
+
+    assert followed.number_of_groups == 2
+    assert followed.number_of_datasets == 1
+    assert followed.out_degrees == [1, 2]
+    assert sorted(followed.leaf_depths) == [2, 2]
+    assert followed.total_cophenetic_index == 1
+    assert followed.max_depth == 2
+
+    assert skipped.number_of_datasets == 1
+    assert skipped.leaf_depths == [2]
+
+
 # --- The shape indices, on trees whose answers are known by hand --------------------------------
 
 

@@ -133,6 +133,7 @@
 
 ### 🐛 Bug Fix
 
+- `walk_hdf5_group` under `LINKS_FOLLOWED` no longer fails a file holding a soft link to a path that is not in it, which no number of retries could get past: the link is a leaf of the group that names it, neither a group nor a dataset. 65 files in the archive carry one (`/general/devices/camera_device N/model`, pointing at a device model that was never written), and `valid-nwb-file-to-out-degrees` and `valid-nwb-file-to-cophenetic-index` had been retrying them on every run.
 - `RETRY` now reaches every item it retries, not only the first ones. Each run starts the retries at a different place in their sorted order, wrapping around, while the items never tried still come first and in order.
   The retries were sorted and started from the beginning every run, so a run that its time limit stopped partway through them retried the same items every time and never the rest. `valid-nwb-file-to-array-sizes` holds 393 files that timed out: each four-hour run got through the same 88, all of which timed out again, and the other 305 were never tried a second time.
 - `run_incremental_update` given `recorded` now writes that whole mapping, not only the batch's results: what the caller added to it, changed in it or dropped from it before handing it over is recorded by the first write, appending what differs and rewriting the output only when an entry was dropped. Later checkpoints append as before.
