@@ -23,6 +23,8 @@
 
 ### 🚀 Enhancement
 
+- `run_incremental_update` ends every batch with one line a workflow can parse: `Batch summary: considered=N new=N failed=N left=N stopped=none|time|memory`. `left` counts the items a time or memory limit stopped it from reaching, including an item abandoned at the time limit, and `BatchResult` gains `reached`, `left` and `stopped` to match.
+  `dandi-cache-action` reads it to queue the next run as soon as one ends with work it never reached and something new recorded, rather than leaving the rest of a backlog to the next scheduled run ([dandi-cache-action#16](https://github.com/dandi-cache/dandi-cache-action/pull/16)).
 - An input can be streamed rather than cloned, by declaring `stream = true` in its `[[inputs]]` entry. The pipeline records the tip of the input's branch as its subdataset's gitlink, without cloning it, and `iter_input` and `read_input` read the store at that commit over HTTPS from GitHub's raw file service, one chunk at a time, in memory, with retries and two chunks fetched ahead. A lookup is read in one pass, newest entries first.
   `valid-nwb-file-to-byte-weighted-structure` reads `valid-nwb-file-to-array-sizes`, whose store is 13.5 GiB on disk and too large to clone onto a runner; streamed, it is about 550 MiB over the network and under four minutes, with nothing on disk.
 - `run_incremental_update`'s time limit now also covers an item that never finishes. Items run in daemon threads, and one still running a second after the limit passes is abandoned, unrecorded, while the batch writes what it has, logging which item it gave up on.
