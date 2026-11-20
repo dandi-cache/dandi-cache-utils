@@ -889,6 +889,71 @@ def test_with_one_worker_the_next_item_waits_for_the_last_to_be_recorded(dataset
     assert events[:6] == ["start a", "write", "start b", "write", "start c", "write"]
 
 
+def _batch_summary(caplog) -> str:
+    lines = [record.getMessage() for record in caplog.records if record.getMessage().startswith("Batch summary:")]
+    assert len(lines) == 1
+    return lines[0]
+
+
+@pytest.mark.ai_generated
+def test_a_finished_batch_says_it_left_nothing(dataset, caplog):
+    caplog.set_level("INFO")
+
+    def process(item):
+        if item == "b":
+            raise ValueError("not an NWB file")
+        return item
+
+    dandi_cache.run_incremental_update(dataset, candidates=["a", "b", "c"], process=process)
+
+    assert _batch_summary(caplog) == "Batch summary: considered=3 new=2 failed=1 left=0 stopped=none"
+
+
+@pytest.mark.ai_generated
+def test_a_batch_stopped_by_its_time_limit_says_what_it_left(dataset, caplog):
+    """The action queues the next run at once from this line, rather than leaving the rest to the schedule."""
+    caplog.set_level("INFO")
+
+    _records, result = dandi_cache.run_incremental_update(
+        dataset, candidates=[f"{i:02d}" for i in range(10)], process=lambda item: True, time_limit_minutes=0
+    )
+
+    assert (result.reached, result.left) == (1, 9)
+    assert _batch_summary(caplog) == "Batch summary: considered=10 new=1 failed=0 left=9 stopped=time"
+
+
+@pytest.mark.ai_generated
+def test_an_abandoned_item_is_left_rather_than_reached(dataset, caplog):
+    caplog.set_level("INFO")
+    never = threading.Event()
+
+    def process(item):
+        if item == "b":
+            never.wait()
+        return item
+
+    dandi_cache.run_incremental_update(dataset, candidates=["a", "b", "c"], process=process, time_limit_minutes=0.02)
+
+    assert _batch_summary(caplog) == "Batch summary: considered=3 new=1 failed=0 left=2 stopped=time"
+
+
+@pytest.mark.ai_generated
+def test_a_batch_stopped_by_its_memory_limit_says_what_it_left(dataset, caplog, monkeypatch):
+    caplog.set_level("INFO")
+    done = []
+    monkeypatch.setattr("dandi_cache_utils._runner.peak_memory_mib", lambda: 10**6 if len(done) >= 3 else 1.0)
+
+    def process(item):
+        done.append(item)
+        return True
+
+    dandi_cache.run_incremental_update(
+        dataset, candidates=[f"{i:02d}" for i in range(10)], process=process, memory_limit_mib=1000
+    )
+
+    assert _batch_summary(caplog) == "Batch summary: considered=10 new=3 failed=0 left=7 stopped=memory"
+
+
 @pytest.mark.ai_generated
 def test_a_batch_within_its_time_limit_runs_to_the_end(dataset):
     records, result = dandi_cache.run_incremental_update(

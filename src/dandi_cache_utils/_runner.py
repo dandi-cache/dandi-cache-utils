@@ -58,6 +58,7 @@ class BatchResult:
     """What one batch did, for the summary line and for tests."""
 
     considered: int = 0
+    reached: int = 0
     processed: int = 0
     succeeded: int = 0
     failed: int = 0
@@ -69,6 +70,16 @@ class BatchResult:
     def elapsed_minutes(self) -> float:
         """Wall-clock minutes the batch took."""
         return self.elapsed_seconds / 60
+
+    @property
+    def left(self) -> int:
+        """Items of the batch it never reached, because a limit stopped it first."""
+        return self.considered - self.reached
+
+    @property
+    def stopped(self) -> str:
+        """What stopped the batch before its end: `time`, `memory`, or `none`."""
+        return "time" if self.stopped_for_time else "memory" if self.stopped_for_memory else "none"
 
 
 def select_new(
@@ -277,6 +288,7 @@ def run_incremental_update(
     try:
         for index, (item, scope, value, item_seconds) in enumerate(outcomes, start=1):
             progress = f"[{index}/{len(batch)}] {item}"
+            result.reached = index
 
             if scope.failed:
                 result.failed += 1
@@ -367,6 +379,16 @@ def run_incremental_update(
             result.elapsed_minutes,
             peak_memory_mib(),
         )
+    # One line the action reads to decide whether to queue the next run at once: whether this batch left
+    # work it never reached, and whether it recorded anything new while it ran.
+    logger.info(
+        "Batch summary: considered=%d new=%d failed=%d left=%d stopped=%s",
+        result.considered,
+        result.succeeded,
+        result.failed,
+        result.left,
+        result.stopped,
+    )
     if universe is not None:
         # One line a reader such as the cache dashboard can parse: how much of the cache's candidate set is
         # recorded now. A recorded failure counts, as the item has been tried.
@@ -483,6 +505,7 @@ def run_full_rebuild(
     file_path = dataset.write_output_records(records, output)
     result = BatchResult(
         considered=len(records),
+        reached=len(records),
         processed=len(records),
         succeeded=len(records),
         elapsed_seconds=time.monotonic() - start_time,
